@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover：讓畫面延伸到瀏海／圓角區域，搭配 env(safe-area-inset-*) 做安全區留白 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>TraceCam 運動錄影疊加</title>
+<meta name="description" content="錄影同時即時疊加路線地圖、GPS 軌跡、速度、距離、海拔與時間，跑步、單車、機車皆適用，拍完免後製。">
+
+<!-- ===== PWA / iOS 獨立 APP 設定 ===== -->
+<meta name="theme-color" content="#0b0d10">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TraceCam">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+
+<style>
+/* =====================================================================
+   設計代幣（Design Tokens）：深色、單一強調色，所有圖示皆為 1.8px 線條
+   ===================================================================== */
+:root{
+  --bg:#0b0d10; --panel:#14181d; --panel2:#1b2027; --line:#2a313a;
+  --text:#f2f5f8; --sub:#8b96a3; --accent:#ff6b2c; --accent-soft:rgba(255,107,44,.14);
+  --ok:#34d399; --warn:#fbbf24; --danger:#ef4444;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--font);
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.ic{display:block;flex:none}
+.hidden{display:none!important}
+#app{position:fixed;inset:0;height:100dvh;overflow:hidden}
+
+/* ---------- 相機主畫面 ---------- */
+#cam{position:absolute;inset:0;background:#000}
+#viewport{position:absolute;left:0;right:0;top:calc(var(--sat) + 62px);bottom:calc(var(--sab) + 176px)}
+#view{width:100%;height:100%;object-fit:contain;display:block;border-radius:14px;background:#050607}
+.top{position:absolute;left:0;right:0;top:0;padding:calc(var(--sat) + 10px) calc(var(--sar) + 14px) 8px calc(var(--sal) + 14px);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;z-index:5}
+.chip{display:flex;align-items:center;gap:7px;height:38px;padding:0 13px;border-radius:19px;background:rgba(20,24,29,.78);
+  border:1px solid var(--line);font-size:13px;color:var(--sub);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.chip.ok .dot{background:var(--ok)} .chip.warn .dot{background:var(--warn)}
+.chip.rec{color:#fff;border-color:rgba(239,68,68,.6);background:rgba(239,68,68,.22);font-variant-numeric:tabular-nums;font-weight:600}
+.chip.rec .dot{background:var(--danger);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+.row{display:flex;gap:8px;align-items:center}
+.iconbtn{width:42px;height:42px;border-radius:21px;display:grid;place-items:center;background:rgba(20,24,29,.78);
+  border:1px solid var(--line);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.iconbtn:active{transform:scale(.94)}
+.iconbtn:disabled{opacity:.35}
+.bottom{position:absolute;left:0;right:0;bottom:0;padding:10px calc(var(--sar) + 18px) calc(var(--sab) + 18px) calc(var(--sal) + 18px);z-index:5}
+.seg{display:flex;gap:4px;padding:4px;border-radius:14px;background:var(--panel);border:1px solid var(--line);max-width:420px;margin:0 auto 16px}
+.seg button{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border-radius:10px;font-size:14px;color:var(--sub);transition:.15s}
+.seg button.on{background:var(--accent-soft);color:var(--accent)}
+.seg button:disabled{opacity:.45}
+.ctrl{display:flex;align-items:center;justify-content:space-between;max-width:420px;margin:0 auto}
+.side{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:var(--panel);border:1px solid var(--line)}
+.side:disabled{opacity:.35}
+.recbtn{width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:grid;place-items:center;transition:.15s}
+.recbtn i{display:block;width:62px;height:62px;border-radius:50%;background:var(--danger);transition:.18s}
+.recbtn.on i{width:30px;height:30px;border-radius:8px}
+.recbtn:active{transform:scale(.95)}
+
+/* ---------- 全螢幕頁面（簡介 / 歷史 / 詳情） ---------- */
+.screen{position:absolute;inset:0;background:var(--bg);z-index:20;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:calc(var(--sat) + 8px) calc(var(--sar) + 16px) calc(var(--sab) + 24px) calc(var(--sal) + 16px)}
+.wrap{max-width:720px;margin:0 auto}
+.head{display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;background:linear-gradient(var(--bg) 80%,transparent);z-index:2}
+.head h2{margin:0;font-size:18px;font-weight:600}
+.head .iconbtn{background:var(--panel)}
+.intro{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:100%;gap:14px;padding:20px}
+.logo{width:92px;height:92px;border-radius:24px;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;color:var(--accent)}
+.intro h1{margin:6px 0 0;font-size:28px;letter-spacing:.5px}
+.intro p{margin:0;color:var(--sub);line-height:1.7;max-width:360px;font-size:15px}
+.feat{display:grid;gap:10px;width:100%;max-width:360px;margin:10px 0 6px;text-align:left}
+.feat div{display:flex;gap:12px;align-items:center;color:var(--text);font-size:14px;background:var(--panel);border:1px solid var(--line);padding:12px 14px;border-radius:14px}
+.feat .ic{color:var(--accent)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:50px;padding:0 26px;border-radius:25px;background:var(--accent);color:#fff;font-weight:600;font-size:16px}
+.btn.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--text);font-weight:500}
+.btn.danger{background:rgba(239,68,68,.14);color:var(--danger);border:1px solid rgba(239,68,68,.35)}
+.btn.sm{height:42px;font-size:14px;padding:0 18px}
+.btn:active{transform:scale(.97)}
+.err{color:var(--danger);font-size:13px;min-height:18px;max-width:340px}
+
+.empty{display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--sub);padding:80px 20px;text-align:center;font-size:14px;line-height:1.7}
+.card{display:flex;gap:14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:10px;margin-bottom:12px;width:100%;text-align:left}
+.card:active{background:var(--panel2)}
+.thumb{width:96px;height:96px;border-radius:12px;background:#000 center/cover no-repeat;flex:none;display:grid;place-items:center;color:var(--sub)}
+.card .meta{flex:1;min-width:0}
+.card .t{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .s{display:flex;gap:6px;align-items:center;color:var(--sub);font-size:12.5px;margin-top:5px}
+.card .n{display:flex;gap:14px;margin-top:9px;font-variant-numeric:tabular-nums;font-size:14px}
+.card .n b{font-weight:600} .card .n span{color:var(--sub);font-size:11px;margin-left:2px}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+.stat label{display:flex;gap:6px;align-items:center;color:var(--sub);font-size:12px}
+.stat label .ic{color:var(--accent)}
+.stat div{font-size:24px;font-weight:650;margin-top:6px;font-variant-numeric:tabular-nums}
+.stat div small{font-size:12px;color:var(--sub);font-weight:400;margin-left:3px}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:12px}
+.pane h3{margin:0;padding:14px 16px 0;font-size:13px;color:var(--sub);font-weight:500}
+video.pv{width:100%;max-height:60vh;background:#000;display:block;border-radius:18px;margin-bottom:12px}
+#dmap{width:100%;height:280px;display:block}
+#dchart{width:100%;height:150px;display:block}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 18px}
+.acts .btn{flex:1;min-width:140px}
+
+/* ---------- 設定面板 / 安裝視窗 ---------- */
+.sheet,.modal{position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.modal{align-items:center;padding:20px}
+.sheet .box{width:100%;max-width:560px;max-height:86dvh;overflow-y:auto;background:var(--panel);border-radius:24px 24px 0 0;border:1px solid var(--line);
+  padding:8px 18px calc(var(--sab) + 22px);animation:up .22s ease-out}
+.modal .box{width:100%;max-width:440px;max-height:88dvh;overflow-y:auto;background:var(--panel);border-radius:24px;border:1px solid var(--line);padding:22px;animation:up .22s ease-out}
+@keyframes up{from{transform:translateY(30px);opacity:0}to{transform:none;opacity:1}}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 10px}
+.sheet h3,.modal h3{margin:0;font-size:18px}
+.grp{margin:18px 0 6px;color:var(--sub);font-size:12px;letter-spacing:.5px}
+.item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;border-bottom:1px solid var(--line);font-size:15px}
+.item:last-child{border-bottom:0}
+.tog{width:50px;height:30px;border-radius:15px;background:var(--panel2);border:1px solid var(--line);position:relative;flex:none;transition:.18s}
+.tog::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:var(--sub);transition:.18s}
+.tog.on{background:var(--accent-soft);border-color:var(--accent)} .tog.on::after{left:23px;background:var(--accent)}
+.mini{display:flex;gap:3px;padding:3px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)}
+.mini button{height:30px;padding:0 11px;border-radius:7px;font-size:13px;color:var(--sub)}
+.mini button.on{background:var(--accent-soft);color:var(--accent)}
+.txt{height:38px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:0 12px;font:inherit;font-size:14px;width:170px;
+  -webkit-user-select:text;user-select:text}
+.steps{margin:12px 0;padding:0;list-style:none;display:grid;gap:10px;counter-reset:s}
+.steps li{counter-increment:s;display:flex;gap:12px;align-items:flex-start;font-size:14px;line-height:1.6;color:var(--text)}
+.steps li::before{content:counter(s);flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:600;margin-top:1px}
+.note{color:var(--sub);font-size:12.5px;line-height:1.7}
+a{color:var(--accent)}
+
+/* ---------- 提示 ---------- */
+#toast{position:absolute;left:50%;top:calc(var(--sat) + 70px);transform:translate(-50%,-10px);max-width:88vw;padding:11px 16px;border-radius:14px;background:rgba(27,32,39,.96);
+  border:1px solid var(--line);font-size:14px;line-height:1.5;opacity:0;pointer-events:none;transition:.2s;z-index:60;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#update{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--sab) + 190px);z-index:55;display:flex;align-items:center;gap:10px;
+  background:var(--accent);color:#fff;padding:11px 18px;border-radius:24px;font-size:14px;font-weight:600;box-shadow:0 8px 28px rgba(0,0,0,.45);white-space:nowrap}
+#hist{z-index:25} #detail{z-index:30} #intro{z-index:35}
+
+/* 電腦版：相機區域置中並限制寬度 */
+@media (min-width:900px){ #viewport{left:50%;right:auto;width:min(1100px,92vw);transform:translateX(-50%)} }
+@media (max-height:520px) and (orientation:landscape){
+  #viewport{top:calc(var(--sat) + 52px);bottom:calc(var(--sab) + 12px);right:170px;left:12px}
+  .bottom{left:auto;width:160px;top:60px;padding:0 calc(var(--sar) + 10px) 10px 0}
+  .seg{flex-direction:column;margin-bottom:10px}
+  .ctrl{flex-direction:column;gap:12px;height:auto}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== 相機主畫面：預覽畫布即為錄製畫布（所見即所得） ===== -->
+  <section id="cam">
+    <div id="viewport"><canvas id="view" width="1280" height="720"></canvas></div>
+
+    <div class="top">
+      <div class="row">
+        <div class="chip" id="gpsChip"><span class="dot"></span><span id="gpsTxt">GPS 未啟動</span></div>
+        <div class="chip rec hidden" id="recChip"><span class="dot"></span><span id="recTime">00:00:00</span></div>
+      </div>
+      <div class="row">
+        <button class="iconbtn" id="btnInstall" aria-label="安裝 APP"><i data-ic="smartphone"></i></button>
+        <button class="iconbtn" id="btnSet" aria-label="設定"><i data-ic="sliders"></i></button>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="seg" id="sportSeg">
+        <button data-sport="run"><i data-ic="run" data-s="20"></i>跑步</button>
+        <button data-sport="bike"><i data-ic="bike" data-s="20"></i>單車</button>
+        <button data-sport="moto"><i data-ic="moto" data-s="20"></i>機車</button>
+      </div>
+      <div class="ctrl">
+        <button class="side" id="btnHist" aria-label="歷史紀錄"><i data-ic="list" data-s="24"></i></button>
+        <button class="recbtn" id="btnRec" aria-label="開始／結束錄影"><i></i></button>
+        <button class="side" id="btnFlip" aria-label="切換鏡頭"><i data-ic="flip" data-s="24"></i></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 啟動頁（取得相機／定位權限需要使用者手勢） ===== -->
+  <section id="intro" class="screen">
+    <div class="intro">
+      <div class="logo"><i data-ic="route" data-s="46"></i></div>
+      <h1>TraceCam</h1>
+      <p>錄影同時即時疊加路線地圖、速度、距離與海拔，拍完直接儲存，免後製。</p>
+      <div class="feat">
+        <div><i data-ic="map" data-s="20"></i>即時迷你地圖與 GPS 軌跡</div>
+        <div><i data-ic="gauge" data-s="20"></i>速度／配速、距離、海拔、時間</div>
+        <div><i data-ic="pin" data-s="20"></i>自訂浮水印，行程結束可回顧軌跡</div>
+      </div>
+      <button class="btn" id="btnStart"><i data-ic="camera" data-s="20"></i>開啟相機與定位</button>
+      <div class="err" id="introErr"></div>
+      <button class="btn ghost sm" id="btnIntroHist"><i data-ic="list" data-s="18"></i>查看歷史行程</button>
+    </div>
+  </section>
+
+  <!-- ===== 歷史列表 ===== -->
+  <section id="hist" class="screen hidden"><div class="wrap">
+    <div class="head"><button class="iconbtn" id="histBack" aria-label="返回"><i data-ic="back"></i></button><h2>歷史行程</h2><span style="width:42px"></span></div>
+    <div id="histList"></div>
+  </div></section>
+
+  <!-- ===== 行程詳情 ===== -->
+  <section id="detail" class="screen hidden"><div class="wrap">
+    <div class="head"><button class="iconbtn" id="detBack" aria-label="返回"><i data-ic="back"></i></button><h2 id="detTitle">行程</h2>
+      <button class="iconbtn" id="detDel" aria-label="刪除"><i data-ic="trash"></i></button></div>
+    <div id="detBody"></div>
+  </div></section>
+
+  <!-- ===== 設定面板 ===== -->
+  <div id="sheet" class="sheet hidden"><div class="box">
+    <div class="grab"></div>
+    <div class="row" style="justify-content:space-between"><h3>設定</h3><button class="iconbtn" id="setClose" aria-label="關閉"><i data-ic="x"></i></button></div>
+    <div id="setBody"></div>
+  </div></div>
+
+  <!-- ===== 安裝 APP 說明視窗 ===== -->
+  <div id="modal" class="modal hidden"><div class="box">
+    <div class="row" style="justify-content:space-between"><h3>安裝 APP</h3><button class="iconbtn" id="modClose" aria-label="關閉"><i data-ic="x"></i></button></div>
+    <p class="note" id="modLead" style="margin:10px 0 0"></p>
+    <ol class="steps" id="modSteps"></ol>
+    <div class="acts" style="margin-bottom:6px">
+      <button class="btn sm hidden" id="btnDoInstall"><i data-ic="download" data-s="18"></i>立即安裝</button>
+      <a class="btn ghost sm" href="./install.html" target="_blank" rel="noopener" style="text-decoration:none"><i data-ic="book" data-s="18"></i>完整安裝教學與 QR Code</a>
+    </div>
+    <p class="note" id="modStat"></p>
+  </div></div>
+
+  <div id="toast" role="status"></div>
+  <div id="update" class="hidden"><i data-ic="refresh" data-s="18"></i><span>有新版本可用．立即更新</span></div>
+</div>
+
+<script>
+/* =====================================================================
+   TraceCam 運動錄影疊加 — 單一檔案完整實作
+   架構：
+   1) 工具與圖示   2) 設定 / IndexedDB 儲存   3) GPS 引擎
+   4) 地圖磚繪製   5) 畫布疊加繪製（預覽＝錄製）  6) 相機與錄影
+   7) 歷史與詳情   8) 設定面板 / 安裝視窗     9) PWA 更新機制
+   ===================================================================== */
+(() => {
+'use strict';
+
+/* ------------------------------------------------------------------
+   1) 工具與圖示
+   ------------------------------------------------------------------ */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+/** Lucide 風格線條圖示（24x24 viewBox，統一 stroke-width 1.8、圓角端點、不填色） */
+const ICON = {
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  sliders:'<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+  list:'<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+  flip:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+  refresh:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  share:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  back:'<path d="m15 18-6-6 6-6"/>',
+  map:'<path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13"/><path d="M15 7v13"/>',
+  gauge:'<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  mountain:'<path d="m8 3 4 8 5-5 5 15H2z"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  route:'<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
+  bike:'<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>',
+  run:'<path d="M4 16v-2.4C4 11.5 3 10.5 3 8c0-2.7 1.5-6 4.5-6C9.4 2 10 3.8 10 5.5c0 3.1-2 5.7-2 8.7V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.4c0-2.1 1-3.1 1-5.6 0-2.7-1.5-6-4.5-6C14.6 6 14 7.8 14 9.5c0 3.1 2 5.7 2 8.7V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/>',
+  moto:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h5l3-6h-4"/><path d="M16 11l-1-4h-3"/><path d="M19 14l-2-3"/>',
+  mic:'<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  smartphone:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+  camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/>',
+  book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  film:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 12h18"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  trend:'<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>'
+};
+/** 產生一個內嵌 SVG 字串 */
+const svg = (n, s = 22) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n] || ''}</svg>`;
+/** 把 HTML 中 <i data-ic="名稱" data-s="尺寸"> 佔位元素換成 SVG */
+const hydrateIcons = (root = document) => $$('[data-ic]', root).forEach(el => { el.innerHTML = svg(el.dataset.ic, +el.dataset.s || 22); el.style.display = 'contents'; });
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const pad2 = n => String(n).padStart(2, '0');
+const SPORT = { run:{ name:'跑步', icon:'run', zoom:17 }, bike:{ name:'單車', icon:'bike', zoom:16 }, moto:{ name:'機車', icon:'moto', zoom:15 } };
+
+/** 時間格式：毫秒 → hh:mm:ss */
+function fmtDur(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor(s % 3600 / 60))}:${pad2(s % 60)}`; }
+function fmtDate(ts) { const d = new Date(ts); return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function fmtClock(ts) { const d = new Date(ts); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
+
+/* 單位換算：cfg.units = metric（公制）或 imperial（英制） */
+const imp = () => cfg.units === 'imperial';
+const spdUnit = () => imp() ? 'mph' : 'km/h';
+const spdNum  = mps => mps * (imp() ? 2.236936 : 3.6);
+const distFmt = m => imp() ? { v:(m / 1609.344).toFixed(2), u:'mi' } : (m < 1000 ? { v:m.toFixed(0), u:'m' } : { v:(m / 1000).toFixed(2), u:'km' });
+const altFmt  = m => m == null ? { v:'--', u:imp() ? 'ft' : 'm' } : { v:(imp() ? m * 3.28084 : m).toFixed(0), u:imp() ? 'ft' : 'm' };
+/** 配速（分:秒 每公里／每英里） */
+function paceFmt(mps) {
+  if (!mps || mps < 0.5) return '--:--';
+  const sec = (imp() ? 1609.344 : 1000) / mps; if (sec > 5999) return '--:--';
+  return `${Math.floor(sec / 60)}:${pad2(Math.round(sec % 60) % 60)}`;
+}
+const paceUnit = () => imp() ? '/mi' : '/km';
+
+/** 提示訊息 */
+let toastTimer;
+function toast(msg, ms = 2800) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+/** 全域錯誤攔截：避免白屏，並提示使用者 */
+let lastErrAt = 0;
+function reportError(e) {
+  console.error(e);
+  if (Date.now() - lastErrAt < 5000) return; lastErrAt = Date.now();
+  toast('發生錯誤：' + (e && e.message ? e.message : String(e)), 4000);
+}
+window.addEventListener('error', ev => reportError(ev.error || ev.message));
+window.addEventListener('unhandledrejection', ev => reportError(ev.reason));
+
+/* ------------------------------------------------------------------
+   2) 設定（localStorage）與行程資料庫（IndexedDB）
+   ------------------------------------------------------------------ */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 私密模式等情況忽略 */ } }
+};
+const DEFAULTS = {
+  sport:'bike', facing:'environment', res:'1080', mic:true,
+  showMap:true, mapPos:'bl', mapStyle:'dark', mapSize:'m', zoom:'0',
+  units:'metric', showDist:true, showTime:true, showAlt:true, showAvg:true,
+  showWm:true, wmText:'TraceCam', showClock:true, showCoords:false
+};
+let cfg = Object.assign({}, DEFAULTS, store.get('tracecam.cfg', {}));
+const saveCfg = () => store.set('tracecam.cfg', cfg);
+
+/** IndexedDB：trips 存行程資訊與軌跡、videos 存影片 Blob（分開存放，列表載入較快） */
+let _db;
+function openDB() {
+  if (_db) return _db;
+  _db = new Promise((res, rej) => {
+    if (!window.indexedDB) return rej(new Error('此瀏覽器不支援 IndexedDB'));
+    const r = indexedDB.open('tracecam', 1);
+    r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('trips', { keyPath:'id' }); d.createObjectStore('videos', { keyPath:'id' }); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return _db;
+}
+async function dbRun(stores, mode, fn) {
+  const d = await openDB();
+  return new Promise((res, rej) => {
+    const t = d.transaction(stores, mode); let req;
+    try { req = fn(t); } catch (e) { return rej(e); }
+    t.oncomplete = () => res(req && 'result' in req ? req.result : undefined);
+    t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('交易中止'));
+  });
+}
+const dbSaveTrip  = (meta, blob) => dbRun(['trips', 'videos'], 'readwrite', t => { if (blob) t.objectStore('videos').put({ id:meta.id, blob }); return t.objectStore('trips').put(meta); });
+const dbListTrips = async () => (await dbRun(['trips'], 'readonly', t => t.objectStore('trips').getAll()) || []).sort((a, b) => b.start - a.start);
+const dbGetTrip   = id => dbRun(['trips'], 'readonly', t => t.objectStore('trips').get(id));
+const dbGetVideo  = async id => { const r = await dbRun(['videos'], 'readonly', t => t.objectStore('videos').get(id)); return r && r.blob; };
+const dbDelTrip   = id => dbRun(['trips', 'videos'], 'readwrite', t => { t.objectStore('videos').delete(id); return t.objectStore('trips').delete(id); });
+
+/* ------------------------------------------------------------------
+   3) GPS 引擎
+   ------------------------------------------------------------------ */
+const gps = { lat:null, lon:null, alt:null, acc:null, spd:0, hdg:null, ts:0, last:null, weak:false, err:null, watch:null, trail:[] };
+/** 錄影狀態：軌跡點、距離、移動時間、最高速、累計爬升 */
+const rec = { on:false, startTs:0, pts:[], dist:0, moving:0, max:0, gain:0, refAlt:null, lastPt:0, mr:null, chunks:[], mime:'', W:0, H:0, saving:false };
+
+const toRad = d => d * Math.PI / 180;
+/** Haversine 球面距離（公尺） */
+function hav(a1, o1, a2, o2) {
+  const R = 6371008.8, dA = toRad(a2 - a1), dO = toRad(o2 - o1);
+  const h = Math.sin(dA / 2) ** 2 + Math.cos(toRad(a1)) * Math.cos(toRad(a2)) * Math.sin(dO / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function bearing(a1, o1, a2, o2) {
+  const y = Math.sin(toRad(o2 - o1)) * Math.cos(toRad(a2));
+  const x = Math.cos(toRad(a1)) * Math.sin(toRad(a2)) - Math.sin(toRad(a1)) * Math.cos(toRad(a2)) * Math.cos(toRad(o2 - o1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function startGPS() {
+  if (!('geolocation' in navigator)) { gps.err = '此裝置不支援定位'; updateChip(); return; }
+  if (gps.watch != null) return;
+  gps.watch = navigator.geolocation.watchPosition(onPos, e => {
+    gps.err = e.code === 1 ? '定位權限被拒絕' : e.code === 2 ? '無法取得位置' : '定位逾時';
+    updateChip();
+  }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
+}
+
+function onPos(p) {
+  try {
+    const c = p.coords, now = p.timestamp || Date.now();
+    gps.err = null; gps.acc = c.accuracy;
+    // 精度太差（> 60 m）的點不納入計算，避免軌跡亂跳
+    if (c.accuracy > 60) { gps.weak = true; updateChip(); return; }
+    gps.weak = false;
+
+    let spd = (c.speed != null && isFinite(c.speed)) ? c.speed : null;
+    const prev = gps.last;
+    let d = 0, dt = 0;
+    if (prev) {
+      d = hav(prev.lat, prev.lon, c.latitude, c.longitude); dt = (now - prev.ts) / 1000;
+      if (dt > 0 && d > 50 && d / dt > 90) return;          // 瞬間跳點（>324 km/h）視為雜訊
+      if (spd == null) spd = dt > 0 ? d / dt : 0;           // 裝置未提供速度時以位移推算
+    }
+    if (spd == null) spd = 0;
+    gps.spd = gps.spd ? gps.spd * 0.6 + spd * 0.4 : spd;     // 指數平滑，數字不會劇烈跳動
+    if (gps.spd < 0.4) gps.spd = 0;
+
+    if (c.heading != null && isFinite(c.heading) && gps.spd > 1) gps.hdg = c.heading;
+    else if (prev && d > 3) gps.hdg = bearing(prev.lat, prev.lon, c.latitude, c.longitude);
+
+    gps.lat = c.latitude; gps.lon = c.longitude; gps.alt = (c.altitude != null && isFinite(c.altitude)) ? c.altitude : null; gps.ts = now;
+    gps.trail.push([c.latitude, c.longitude]); if (gps.trail.length > 600) gps.trail.shift();
+
+    if (rec.on) {
+      if (prev && dt > 0 && dt < 10) {
+        if (d >= 2 && gps.spd > 0.5) rec.dist += d;           // 靜止漂移（<2m 或近乎靜止）不累計
+        if (gps.spd > 0.8) rec.moving += dt * 1000;
+      }
+      if (gps.spd > rec.max) rec.max = gps.spd;
+      if (gps.alt != null) {                                  // 爬升：以 3 公尺為門檻，濾掉氣壓／GPS 抖動
+        if (rec.refAlt == null) rec.refAlt = gps.alt;
+        else if (gps.alt - rec.refAlt >= 3) { rec.gain += gps.alt - rec.refAlt; rec.refAlt = gps.alt; }
+        else if (rec.refAlt - gps.alt >= 3) rec.refAlt = gps.alt;
+      }
+      if (now - rec.lastPt >= 1000) {
+        rec.lastPt = now;
+        rec.pts.push({ t:now, la:+c.latitude.toFixed(6), lo:+c.longitude.toFixed(6), al:gps.alt == null ? null : +gps.alt.toFixed(1), sp:+gps.spd.toFixed(2) });
+      }
+    }
+    gps.last = { lat:c.latitude, lon:c.longitude, ts:now };
+    updateChip();
+  } catch (e) { reportError(e); }
+}
+
+function updateChip() {
+  const chip = $('#gpsChip'), txt = $('#gpsTxt'); chip.classList.remove('ok', 'warn');
+  if (gps.err) txt.textContent = gps.err;
+  else if (gps.lat == null) txt.textContent = gps.weak ? 'GPS 精度不足' : '搜尋 GPS…';
+  else if (gps.weak || gps.acc > 25) { chip.classList.add('warn'); txt.textContent = `GPS ±${Math.round(gps.acc)}m`; }
+  else { chip.classList.add('ok'); txt.textContent = `GPS ±${Math.round(gps.acc)}m`; }
+}
+
+/* ------------------------------------------------------------------
+   4) 地圖磚繪製（CARTO 底圖，資料 © OpenStreetMap contributors © CARTO）
+   無網路或無法載入時退回「格線＋軌跡」，疊加資訊仍可完整錄製
+   ------------------------------------------------------------------ */
+const TILES = new Map();
+const lon2px = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
+const lat2px = (lat, z) => { const s = Math.sin(toRad(clamp(lat, -85.05, 85.05))); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
+
+function getTile(style, z, x, y, onLoad) {
+  const key = `${style}/${z}/${x}/${y}`; let e = TILES.get(key);
+  if (e) {
+    if (e.ok) return e.img;
+    if (!e.fail || Date.now() - e.fail < 15000) return null;   // 載入中，或失敗後 15 秒內不重試
+  }
+  const img = new Image(); img.crossOrigin = 'anonymous';       // 需要 CORS 才不會污染畫布（否則無法錄影）
+  e = { img, ok:false, fail:0 }; TILES.set(key, e);
+  img.onload = () => { e.ok = true; onLoad && onLoad(); };
+  img.onerror = () => { e.fail = Date.now(); };
+  img.src = `https://${'abcd'[(x + y) & 3]}.basemaps.cartocdn.com/${style === 'light' ? 'light_all' : 'dark_all'}/${z}/${x}/${y}@2x.png`;
+  if (TILES.size > 450) TILES.delete(TILES.keys().next().value);
+  return null;
+}
+
+/**
+ * 在 (x,y,w,h) 區域繪製底圖並回傳投影函式 P(lat,lon) → {x,y}
+ * v = { lat, lon, z, k }：中心點、縮放層級、像素縮放倍率
+ */
+function drawBase(c, x, y, w, h, v, style, onTile) {
+  c.fillStyle = style === 'light' ? '#e6eaee' : '#151a20'; c.fillRect(x, y, w, h);
+  const k = v.k, cx = lon2px(v.lon, v.z), cy = lat2px(v.lat, v.z);
+  const left = cx - w / (2 * k), top = cy - h / (2 * k), ww = w / k, hh = h / k;
+  // 格線（底圖不可用時的視覺退路）
+  c.strokeStyle = style === 'light' ? 'rgba(0,0,0,.07)' : 'rgba(255,255,255,.06)'; c.lineWidth = 1; c.beginPath();
+  for (let gx = Math.ceil(left / 64) * 64; gx < left + ww; gx += 64) { const X = x + (gx - left) * k; c.moveTo(X, y); c.lineTo(X, y + h); }
+  for (let gy = Math.ceil(top / 64) * 64; gy < top + hh; gy += 64) { const Y = y + (gy - top) * k; c.moveTo(x, Y); c.lineTo(x + w, Y); }
+  c.stroke();
+  if (style !== 'none') {
+    const n = 2 ** v.z;
+    for (let ty = Math.floor(top / 256); ty <= Math.floor((top + hh) / 256); ty++) {
+      if (ty < 0 || ty >= n) continue;
+      for (let tx = Math.floor(left / 256); tx <= Math.floor((left + ww) / 256); tx++) {
+        const img = getTile(style, v.z, ((tx % n) + n) % n, ty, onTile);
+        if (img) c.drawImage(img, x + (tx * 256 - left) * k, y + (ty * 256 - top) * k, 256 * k + 0.6, 256 * k + 0.6);
+      }
+    }
+  }
+  return (lat, lon) => ({ x: x + (lon2px(lon, v.z) - left) * k, y: y + (lat2px(lat, v.z) - top) * k });
+}
+
+/** 速度 → 顏色（藍→紅漸層），用於詳情頁軌跡 */
+const spdColor = t => `hsl(${200 - 200 * clamp(t, 0, 1)},88%,55%)`;
+
+/* ------------------------------------------------------------------
+   5) 畫布疊加繪製（預覽與錄製共用同一個畫布）
+   ------------------------------------------------------------------ */
+const view = $('#view'), ctx = view.getContext('2d', { alpha:false });
+const video = document.createElement('video');
+video.muted = true; video.playsInline = true; video.autoplay = true; video.setAttribute('playsinline', ''); video.setAttribute('muted', '');
+// iOS 需要影片元素位於 DOM 內才會穩定解碼；以不可見方式放置
+video.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none';
+document.body.appendChild(video);
+
+const FONT = `-apple-system,"SF Pro Text","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function txt(c, t, x, y, font, color, align = 'left', shadow = false) {
+  c.font = font; c.textAlign = align; c.textBaseline = 'alphabetic'; c.fillStyle = color;
+  if (shadow) { c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 6; c.shadowOffsetY = 1; }
+  c.fillText(t, x, y);
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+}
+
+/** 目前行程的即時統計 */
+function liveStats() {
+  const elapsed = rec.on ? Date.now() - rec.startTs : 0;
+  const avg = rec.moving > 3000 ? rec.dist / (rec.moving / 1000) : 0;
+  return { elapsed, avg };
+}
+
+/** 即時迷你地圖（角落） */
+function drawLiveMap(c, x, y, w, h, s) {
+  c.save(); rr(c, x, y, w, h, 22 * s); c.clip();
+  if (gps.lat == null) {
+    c.fillStyle = '#151a20'; c.fillRect(x, y, w, h);
+    txt(c, gps.err || '搜尋 GPS 訊號…', x + w / 2, y + h / 2, `500 ${24 * s}px ${FONT}`, '#8b96a3', 'center');
+  } else {
+    const z = clamp(SPORT[cfg.sport].zoom + (+cfg.zoom), 3, 18);
+    const P = drawBase(c, x, y, w, h, { lat:gps.lat, lon:gps.lon, z, k:s }, cfg.mapStyle, null);
+    // 軌跡：錄影中畫完整軌跡，未錄影時畫最近的移動軌跡
+    let line = rec.on ? rec.pts.map(p => [p.la, p.lo]) : gps.trail;
+    if (line.length > 1500) line = line.slice(-1500);
+    if (line.length > 1) {
+      c.lineJoin = 'round'; c.lineCap = 'round';
+      c.beginPath(); line.forEach((p, i) => { const q = P(p[0], p[1]); i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y); });
+      c.strokeStyle = 'rgba(255,255,255,.92)'; c.lineWidth = 9 * s; c.stroke();
+      c.strokeStyle = '#ff6b2c'; c.lineWidth = 5.5 * s; c.stroke();
+    }
+    // 目前位置：行進中顯示方向箭頭，靜止顯示圓點
+    const q = P(gps.lat, gps.lon);
+    c.save(); c.translate(q.x, q.y);
+    if (gps.hdg != null && gps.spd > 0.8) {
+      c.rotate(toRad(gps.hdg)); c.beginPath(); c.moveTo(0, -17 * s); c.lineTo(12 * s, 13 * s); c.lineTo(0, 7 * s); c.lineTo(-12 * s, 13 * s); c.closePath();
+      c.fillStyle = '#ff6b2c'; c.fill(); c.lineWidth = 3 * s; c.strokeStyle = '#fff'; c.lineJoin = 'round'; c.stroke();
+    } else {
+      c.beginPath(); c.arc(0, 0, 10 * s, 0, 7); c.fillStyle = '#ff6b2c'; c.fill(); c.lineWidth = 4 * s; c.strokeStyle = '#fff'; c.stroke();
+    }
+    c.restore();
+    if (cfg.mapStyle !== 'none') txt(c, '© OpenStreetMap © CARTO', x + w - 8 * s, y + h - 8 * s, `${10 * s}px ${FONT}`, cfg.mapStyle === 'light' ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)', 'right');
+  }
+  c.restore();
+  rr(c, x, y, w, h, 22 * s); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2 * s; c.stroke();
+}
+
+/** 數據面板：大字速度／配速 ＋ 距離、時間、海拔、均速 */
+function drawStatsPanel(c, x, y, s) {
+  const { elapsed, avg } = liveStats(), run = cfg.sport === 'run';
+  const rows = [];
+  if (cfg.showDist) { const d = distFmt(rec.dist); rows.push(['距離', `${d.v} ${d.u}`]); }
+  if (cfg.showTime) rows.push(['時間', fmtDur(elapsed)]);
+  if (cfg.showAlt)  { const a = altFmt(gps.alt); rows.push(['海拔', `${a.v} ${a.u}`]); }
+  if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
+  const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
+  const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
+  rr(c, x, y, W, H, 22 * s); c.fillStyle = 'rgba(10,12,15,.58)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
+  txt(c, run ? '配速' : '速度', x + pad, y + pad + 16 * s, `500 ${21 * s}px ${FONT}`, '#ff8a55');
+  const big = run ? paceFmt(gps.spd) : spdNum(gps.spd).toFixed(1);
+  const bf = `700 ${80 * s}px ${FONT}`; c.font = bf;
+  txt(c, big, x + pad, y + pad + 22 * s + bigH * .82, bf, '#fff');
+  txt(c, run ? paceUnit() : spdUnit(), x + pad + c.measureText(big).width + 10 * s, y + pad + 22 * s + bigH * .82, `500 ${26 * s}px ${FONT}`, '#c4ccd6');
+  rows.forEach((r, i) => {
+    const yy = y + pad + 22 * s + bigH + 10 * s + (i + 1) * rowH - 11 * s;
+    c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 1 * s; c.beginPath(); c.moveTo(x + pad, yy - 27 * s); c.lineTo(x + W - pad, yy - 27 * s); c.stroke();
+    txt(c, r[0], x + pad, yy, `${24 * s}px ${FONT}`, '#9aa5b1');
+    txt(c, r[1], x + W - pad, yy, `600 ${27 * s}px ${FONT}`, '#fff', 'right');
+  });
+  return { w:W, h:H };
+}
+
+/** 浮水印：自訂文字、日期時間、座標 */
+function drawWatermark(c, W, H, s, atTop) {
+  const l1 = cfg.showWm ? (cfg.wmText || '').trim() : '';
+  const parts = []; if (cfg.showClock) parts.push(fmtClock(Date.now()));
+  if (cfg.showCoords && gps.lat != null) parts.push(`${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`);
+  const l2 = parts.join('   ·   ');
+  if (!l1 && !l2) return;
+  const f1 = `700 ${32 * s}px ${FONT}`, f2 = `500 ${23 * s}px ${FONT}`;
+  c.font = f1; const w1 = l1 ? c.measureText(l1).width : 0; c.font = f2; const w2 = l2 ? c.measureText(l2).width : 0;
+  const bw = Math.min(W - 40 * s, Math.max(w1, w2) + 44 * s), bh = (l1 ? 44 * s : 0) + (l2 ? 34 * s : 0) + 18 * s;
+  const bx = (W - bw) / 2, by = atTop ? 24 * s : H - bh - 24 * s;
+  rr(c, bx, by, bw, bh, 18 * s); c.fillStyle = 'rgba(10,12,15,.5)'; c.fill();
+  let yy = by + 10 * s;
+  if (l1) { yy += 34 * s; txt(c, l1, W / 2, yy, f1, '#fff', 'center'); yy += 10 * s; }
+  if (l2) { yy += 24 * s; txt(c, l2, W / 2, yy, f2, '#d5dbe3', 'center'); }
+}
+
+/** 影片尺寸 → 畫布尺寸（依畫質上限縮放；錄影中固定不變） */
+function resizeCanvas() {
+  if (rec.on || !video.videoWidth) return;
+  const cap = cfg.res === '1080' ? 1920 : 1280;
+  let w = video.videoWidth, h = video.videoHeight; const long = Math.max(w, h);
+  if (long > cap) { w = w * cap / long; h = h * cap / long; }
+  w = Math.round(w / 2) * 2; h = Math.round(h / 2) * 2;
+  if (view.width !== w || view.height !== h) { view.width = w; view.height = h; }
+}
+
+/** 主繪製：先畫相機畫面（cover 填滿），再疊加地圖、數據、浮水印 */
+function draw() {
+  const W = view.width, H = view.height, c = ctx;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+  if (vw && vh) {
+    const vr = vw / vh, cr = W / H; let sw, sh, sx, sy;
+    if (vr > cr) { sh = vh; sw = vh * cr; sx = (vw - sw) / 2; sy = 0; } else { sw = vw; sh = vw / cr; sx = 0; sy = (vh - sh) / 2; }
+    c.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+  }
+  const s = Math.min(W, H) / 720, m = 24 * s;
+  const left = cfg.mapPos[1] === 'l', top = cfg.mapPos[0] === 't';
+  const mw = Math.min(W, H) * ({ s:.28, m:.36, l:.46 }[cfg.mapSize] || .36), mh = mw;
+  const panelW = 340 * s;
+  if (cfg.showMap) {
+    drawLiveMap(c, left ? m : W - m - mw, top ? m : H - m - mh, mw, mh, s);
+    // 數據面板放在地圖對側；若空間不足（窄畫面）則改放同側上方
+    const px = left ? W - m - panelW : m;
+    const approxH = 330 * s;
+    if (W - 2 * m - mw >= panelW + 8 * s) drawStatsPanel(c, px, top ? m : H - m - approxH, s); else drawStatsPanel(c, left ? m : W - m - panelW, top ? m + mh + 14 * s : H - m - mh - approxH - 14 * s, s);
+  } else {
+    drawStatsPanel(c, left ? m : W - m - panelW, top ? m : H - m - 330 * s, s);
+  }
+  drawWatermark(c, W, H, s, !top);
+}
+
+let lastDraw = 0;
+function loop(ts) {
+  requestAnimationFrame(loop);
+  if (ts - lastDraw < 30) return;      // 約 30 fps
+  lastDraw = ts;
+  try { if (video.readyState >= 2 || !stream) draw(); } catch (e) { reportError(e); }
+  if (rec.on) $('#recTime').textContent = fmtDur(Date.now() - rec.startTs);
+}
+
+/* ------------------------------------------------------------------
+   6) 相機與錄影
+   ------------------------------------------------------------------ */
+let stream = null, wakeLock = null;
+
+async function openCamera() {
+  if (!window.isSecureContext) throw new Error('需要 HTTPS 才能使用相機與定位');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('此瀏覽器不支援相機');
+  closeCamera();
+  const hi = cfg.res === '1080';
+  const base = { facingMode:{ ideal:cfg.facing }, width:{ ideal:hi ? 1920 : 1280 }, height:{ ideal:hi ? 1080 : 720 }, frameRate:{ ideal:30 } };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video:base, audio:cfg.mic });
+  } catch (e) {
+    if (cfg.mic && (e.name === 'NotAllowedError' || e.name === 'NotFoundError' || e.name === 'OverconstrainedError')) {
+      // 麥克風無法使用時，退回純影像，並提示使用者
+      stream = await navigator.mediaDevices.getUserMedia({ video:base, audio:false });
+      toast('無法使用麥克風，將以無聲錄影');
+    } else throw e;
+  }
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  if (!video.videoWidth) await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 2500); });
+  resizeCanvas();
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* 不支援或被拒絕時忽略 */ }
+}
+function closeCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null;
+  try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null;
+}
+video.addEventListener('resize', resizeCanvas);
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    try { if (stream && 'wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    if (rec.on) toast('錄影進行中');
+  } else if (rec.on) { /* 背景時瀏覽器會暫停畫布繪製，影片可能出現停格 */ }
+});
+
+function pickMime() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  const list = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  return list.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
+}
+
+function setRecUI(on) {
+  $('#btnRec').classList.toggle('on', on);
+  $('#recChip').classList.toggle('hidden', !on);
+  ['#btnFlip', '#btnHist'].forEach(s => $(s).disabled = on);
+  $$('#sportSeg button').forEach(b => b.disabled = on);
+}
+
+async function startRec() {
+  if (!stream) return toast('相機尚未啟動');
+  if (rec.on || rec.saving) return;
+  try {
+    if (typeof MediaRecorder === 'undefined') throw new Error('此瀏覽器不支援錄影（MediaRecorder）');
+    const mime = pickMime();
+    const out = view.captureStream(30);                       // 把「已疊加的畫布」當作影像來源
+    stream.getAudioTracks().forEach(t => out.addTrack(t));
+    const opt = { videoBitsPerSecond: cfg.res === '1080' ? 8e6 : 5e6 }; if (mime) opt.mimeType = mime;
+    const mr = new MediaRecorder(out, opt);
+    Object.assign(rec, { on:true, startTs:Date.now(), pts:[], dist:0, moving:0, max:0, gain:0, refAlt:null, lastPt:0, mr, chunks:[], mime:mr.mimeType || mime || 'video/webm', W:view.width, H:view.height });
+    if (gps.lat != null) { rec.pts.push({ t:Date.now(), la:+gps.lat.toFixed(6), lo:+gps.lon.toFixed(6), al:gps.alt, sp:+gps.spd.toFixed(2) }); rec.lastPt = Date.now(); }
+    mr.ondataavailable = e => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+    mr.onerror = e => reportError(e.error || new Error('錄影發生錯誤'));
+    mr.onstop = finishRec;
+    mr.start(1000);                                           // 每秒切一段，降低意外中斷的損失
+    setRecUI(true);
+    if (gps.lat == null) toast('尚未取得 GPS，軌跡將在定位成功後開始記錄');
+  } catch (e) { rec.on = false; setRecUI(false); reportError(e); }
+}
+
+function stopRec() {
+  if (!rec.on) return;
+  try {
+    rec.thumb = makeThumb();
+    rec.endTs = Date.now();
+    rec.on = false;                                           // 先標記結束，統計即凍結
+    rec.saving = true;
+    if (rec.mr && rec.mr.state !== 'inactive') rec.mr.stop(); else finishRec();
+  } catch (e) { rec.on = false; rec.saving = false; reportError(e); }
+  setRecUI(false);
+}
+
+function makeThumb() {
+  try { const t = document.createElement('canvas'); t.width = 240; t.height = Math.round(240 * view.height / view.width); t.getContext('2d').drawImage(view, 0, 0, t.width, t.height); return t.toDataURL('image/jpeg', .7); } catch (e) { return ''; }
+}
+
+async function finishRec() {
+  try {
+    const blob = new Blob(rec.chunks, { type:rec.mime });
+    const dur = (rec.endTs || Date.now()) - rec.startTs;
+    const meta = {
+      id:'t' + rec.startTs, start:rec.startTs, end:rec.endTs, dur, sport:cfg.sport, dist:rec.dist, moving:rec.moving,
+      avg: rec.moving > 3000 ? rec.dist / (rec.moving / 1000) : 0, max:rec.max, gain:rec.gain, pts:rec.pts, thumb:rec.thumb || '',
+      mime:rec.mime, size:blob.size, hasVideo:blob.size > 0
+    };
+    rec.chunks = [];
+    try {
+      await dbSaveTrip(meta, blob.size ? blob : null);
+      toast('已儲存行程與影片');
+      rec.saving = false;
+      openDetail(meta.id);
+    } catch (e) {
+      // 儲存失敗（例如空間不足）：直接提供下載，避免錄影白費
+      rec.saving = false; reportError(e);
+      if (blob.size) downloadBlob(blob, `TraceCam_${fmtClock(meta.start).replace(/[: ]/g, '-')}.${extFor(meta.mime)}`);
+    }
+  } catch (e) { rec.saving = false; reportError(e); }
+}
+
+const extFor = m => /mp4/.test(m || '') ? 'mp4' : 'webm';
+function downloadBlob(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+
+/* ------------------------------------------------------------------
+   7) 歷史列表與行程詳情
+   ------------------------------------------------------------------ */
+function show(id, on) { $(id).classList.toggle('hidden', !on); }
+
+async function openHist() {
+  show('#hist', true);
+  const box = $('#histList');
+  try {
+    const list = await dbListTrips();
+    if (!list.length) { box.innerHTML = `<div class="empty">${svg('film', 44)}<div>還沒有行程<br>回到相機按下錄影按鈕，結束後會自動存在這裡</div></div>`; return; }
+    box.innerHTML = list.map(t => {
+      const d = distFmt(t.dist), sp = SPORT[t.sport] || SPORT.bike;
+      return `<button class="card" data-id="${t.id}"><div class="thumb" style="${t.thumb ? `background-image:url(${t.thumb})` : ''}">${t.thumb ? '' : svg('film', 30)}</div>
+        <div class="meta"><div class="t">${fmtDate(t.start)}</div>
+        <div class="s">${svg(sp.icon, 15)}<span>${sp.name}</span></div>
+        <div class="n"><div><b>${d.v}</b><span>${d.u}</span></div><div><b>${fmtDur(t.dur)}</b></div>
+        <div><b>${t.sport === 'run' ? paceFmt(t.avg) : spdNum(t.avg).toFixed(1)}</b><span>${t.sport === 'run' ? paceUnit() : spdUnit()}</span></div></div></div></button>`;
+    }).join('');
+    $$('.card', box).forEach(b => b.onclick = () => openDetail(b.dataset.id));
+  } catch (e) { box.innerHTML = `<div class="empty">無法讀取行程：${e.message}</div>`; }
+}
+
+let curTrip = null, curUrl = null;
+async function openDetail(id) {
+  try {
+    const t = await dbGetTrip(id); if (!t) return toast('找不到此行程');
+    curTrip = t; show('#detail', true); show('#hist', false);
+    const sp = SPORT[t.sport] || SPORT.bike, run = t.sport === 'run', d = distFmt(t.dist), a = altFmt(t.gain);
+    $('#detTitle').textContent = `${sp.name} · ${fmtDate(t.start)}`;
+    const st = (ic, lb, v, u) => `<div class="stat"><label>${svg(ic, 15)}${lb}</label><div>${v}<small>${u || ''}</small></div></div>`;
+    $('#detBody').innerHTML = `
+      ${t.hasVideo ? `<video class="pv" id="dvid" controls playsinline preload="metadata"></video>` : ''}
+      <div class="pane"><h3>完整軌跡（顏色代表速度，藍慢紅快）</h3><canvas id="dmap"></canvas></div>
+      <div class="grid">
+        ${st('route', '總距離', d.v, d.u)}${st('clock', '總時間', fmtDur(t.dur))}
+        ${run ? st('gauge', '平均配速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
+        ${run ? st('trend', '最快配速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
+        ${st('clock', '移動時間', fmtDur(t.moving))}${st('mountain', '累計爬升', a.v, a.u)}
+      </div>
+      <div class="pane"><h3>速度變化</h3><canvas id="dchart"></canvas></div>
+      <div class="acts">
+        ${t.hasVideo ? `<button class="btn" id="aShare">${svg('share', 18)}儲存／分享影片</button>` : ''}
+        <button class="btn ghost" id="aGpx">${svg('file', 18)}匯出 GPX</button>
+      </div>
+      <p class="note">iPhone 提示：點「儲存／分享影片」後選擇「儲存視訊」即可存入相簿。</p>`;
+    if (t.hasVideo) {
+      const blob = await dbGetVideo(id);
+      if (blob) { revokeUrl(); curUrl = URL.createObjectURL(blob); $('#dvid').src = curUrl; curTrip._blob = blob; }
+    }
+    if ($('#aShare')) $('#aShare').onclick = shareVideo;
+    $('#aGpx').onclick = exportGPX;
+    requestAnimationFrame(drawDetail);
+  } catch (e) { reportError(e); }
+}
+function revokeUrl() { if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } }
+function closeDetail() { const v = $('#dvid'); if (v) v.pause(); revokeUrl(); show('#detail', false); curTrip = null; openHist(); }
+
+async function shareVideo() {
+  try {
+    const t = curTrip, blob = t && t._blob; if (!blob) return toast('找不到影片檔');
+    const name = `TraceCam_${fmtClock(t.start).replace(/[: ]/g, '-')}.${extFor(t.mime)}`;
+    const file = new File([blob], name, { type:blob.type || t.mime });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) { await navigator.share({ files:[file], title:'TraceCam 行程' }); }
+    else downloadBlob(blob, name);
+  } catch (e) { if (e && e.name !== 'AbortError') reportError(e); }
+}
+function exportGPX() {
+  try {
+    const t = curTrip; if (!t.pts.length) return toast('此行程沒有 GPS 軌跡');
+    const x = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const g = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="TraceCam" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${x(SPORT[t.sport].name + ' ' + fmtDate(t.start))}</name><trkseg>\n` +
+      t.pts.map(p => `<trkpt lat="${p.la}" lon="${p.lo}">${p.al != null ? `<ele>${p.al}</ele>` : ''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('\n') + `\n</trkseg></trk></gpx>`;
+    downloadBlob(new Blob([g], { type:'application/gpx+xml' }), `TraceCam_${fmtClock(t.start).replace(/[: ]/g, '-')}.gpx`);
+  } catch (e) { reportError(e); }
+}
+
+/** 詳情頁：完整軌跡地圖（自動縮放到涵蓋全程）＋ 速度曲線 */
+function drawDetail() {
+  const t = curTrip; if (!t) return;
+  try { drawDetailMap(t); drawChart(t); } catch (e) { reportError(e); }
+}
+function fitCanvas(cv) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3), w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); return { c:cv.getContext('2d'), w:cv.width, h:cv.height, k:dpr };
+}
+function drawDetailMap(t) {
+  const cv = $('#dmap'); if (!cv) return; const { c, w, h, k } = fitCanvas(cv), pts = t.pts;
+  if (!pts.length) { c.fillStyle = '#151a20'; c.fillRect(0, 0, w, h); txt(c, '沒有 GPS 軌跡資料', w / 2, h / 2, `${15 * k}px ${FONT}`, '#8b96a3', 'center'); return; }
+  let a = 90, b = -90, o = 180, p = -180;
+  pts.forEach(q => { a = Math.min(a, q.la); b = Math.max(b, q.la); o = Math.min(o, q.lo); p = Math.max(p, q.lo); });
+  const pad = 34 * k; let z = 17;
+  for (z = 18; z > 2; z--) { if (lon2px(p, z) - lon2px(o, z) <= (w - 2 * pad) / k && lat2px(a, z) - lat2px(b, z) <= (h - 2 * pad) / k) break; }
+  const cLat = (a + b) / 2, cLon = (o + p) / 2;
+  const P = drawBase(c, 0, 0, w, h, { lat:cLat, lon:cLon, z, k }, cfg.mapStyle === 'light' ? 'light' : 'dark', () => { if (curTrip === t) drawDetailMap(t); });
+  const mx = Math.max(...pts.map(q => q.sp), 0.1);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 8 * k; c.beginPath(); pts.forEach((q, i) => { const r = P(q.la, q.lo); i ? c.lineTo(r.x, r.y) : c.moveTo(r.x, r.y); }); c.stroke();
+  for (let i = 1; i < pts.length; i++) {
+    const A = P(pts[i - 1].la, pts[i - 1].lo), B = P(pts[i].la, pts[i].lo);
+    c.strokeStyle = spdColor(pts[i].sp / mx); c.lineWidth = 5 * k; c.beginPath(); c.moveTo(A.x, A.y); c.lineTo(B.x, B.y); c.stroke();
+  }
+  const dot = (q, col) => { const r = P(q.la, q.lo); c.beginPath(); c.arc(r.x, r.y, 8 * k, 0, 7); c.fillStyle = col; c.fill(); c.lineWidth = 3 * k; c.strokeStyle = '#fff'; c.stroke(); };
+  dot(pts[0], '#34d399'); dot(pts[pts.length - 1], '#ef4444');   // 起點綠、終點紅
+  txt(c, '© OpenStreetMap © CARTO', w - 8 * k, h - 8 * k, `${10 * k}px ${FONT}`, 'rgba(255,255,255,.45)', 'right');
+}
+function drawChart(t) {
+  const cv = $('#dchart'); if (!cv) return; const { c, w, h, k } = fitCanvas(cv), pts = t.pts;
+  c.clearRect(0, 0, w, h);
+  if (pts.length < 2) { txt(c, '資料不足', w / 2, h / 2, `${14 * k}px ${FONT}`, '#8b96a3', 'center'); return; }
+  const run = t.sport === 'run', mx = Math.max(...pts.map(q => q.sp), 1), L = 14 * k, R = w - 14 * k, T = 18 * k, B = h - 26 * k;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+  const X = q => L + (q.t - t0) / Math.max(1, t1 - t0) * (R - L), Y = q => B - q.sp / mx * (B - T);
+  c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; for (let i = 0; i <= 3; i++) { const y = T + (B - T) * i / 3; c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); }
+  c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q)));
+  c.lineTo(X(pts[pts.length - 1]), B); c.lineTo(X(pts[0]), B); c.closePath(); c.fillStyle = 'rgba(255,107,44,.16)'; c.fill();
+  c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q))); c.strokeStyle = '#ff6b2c'; c.lineWidth = 2 * k; c.lineJoin = 'round'; c.stroke();
+  txt(c, run ? `最快 ${paceFmt(mx)} ${paceUnit()}` : `最高 ${spdNum(mx).toFixed(1)} ${spdUnit()}`, L, 13 * k, `${11 * k}px ${FONT}`, '#8b96a3');
+  txt(c, '0', L, h - 8 * k, `${11 * k}px ${FONT}`, '#8b96a3'); txt(c, fmtDur(t1 - t0), R, h - 8 * k, `${11 * k}px ${FONT}`, '#8b96a3', 'right');
+}
+window.addEventListener('resize', () => { if (curTrip) drawDetail(); });
+
+$('#detDel').onclick = async () => {
+  if (!curTrip) return;
+  if (!confirm('確定刪除此行程與影片？此動作無法復原。')) return;
+  try { const id = curTrip.id; await dbDelTrip(id); toast('已刪除'); closeDetail(); } catch (e) { reportError(e); }
+};
+$('#detBack').onclick = closeDetail;
+$('#histBack').onclick = () => show('#hist', false);
+
+/* ------------------------------------------------------------------
+   8) 設定面板、安裝視窗、事件綁定
+   ------------------------------------------------------------------ */
+const SCHEMA = [
+  { g:'錄影', items:[
+    { k:'res', t:'seg', l:'畫質', o:[['720', '720p'], ['1080', '1080p']] },
+    { k:'mic', t:'tog', l:'錄製麥克風聲音' } ] },
+  { g:'即時地圖', items:[
+    { k:'showMap', t:'tog', l:'顯示迷你地圖' },
+    { k:'mapPos', t:'seg', l:'位置', o:[['tl', '左上'], ['tr', '右上'], ['bl', '左下'], ['br', '右下']] },
+    { k:'mapSize', t:'seg', l:'大小', o:[['s', '小'], ['m', '中'], ['l', '大']] },
+    { k:'mapStyle', t:'seg', l:'底圖', o:[['dark', '深色'], ['light', '淺色'], ['none', '無']] },
+    { k:'zoom', t:'seg', l:'縮放', o:[['-1', '遠'], ['0', '標準'], ['1', '近']] } ] },
+  { g:'數據顯示', items:[
+    { k:'units', t:'seg', l:'單位', o:[['metric', '公制'], ['imperial', '英制']] },
+    { k:'showDist', t:'tog', l:'距離' }, { k:'showTime', t:'tog', l:'時間' },
+    { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／配速' } ] },
+  { g:'浮水印', items:[
+    { k:'showWm', t:'tog', l:'自訂文字' }, { k:'wmText', t:'text', l:'文字內容' },
+    { k:'showClock', t:'tog', l:'日期時間' }, { k:'showCoords', t:'tog', l:'GPS 座標' } ] }
+];
+function renderSettings() {
+  $('#setBody').innerHTML = SCHEMA.map(g => `<div class="grp">${g.g}</div>` + g.items.map(it => {
+    let ctl = '';
+    if (it.t === 'tog') ctl = `<button class="tog ${cfg[it.k] ? 'on' : ''}" data-k="${it.k}" role="switch" aria-checked="${!!cfg[it.k]}"></button>`;
+    if (it.t === 'seg') ctl = `<div class="mini">${it.o.map(o => `<button data-k="${it.k}" data-v="${o[0]}" class="${String(cfg[it.k]) === o[0] ? 'on' : ''}">${o[1]}</button>`).join('')}</div>`;
+    if (it.t === 'text') ctl = `<input class="txt" data-k="${it.k}" maxlength="24" value="${String(cfg[it.k]).replace(/"/g, '&quot;')}" placeholder="例如：週末環島">`;
+    return `<div class="item"><span>${it.l}</span>${ctl}</div>`;
+  }).join('')).join('');
+  $$('#setBody .tog').forEach(b => b.onclick = () => { cfg[b.dataset.k] = !cfg[b.dataset.k]; saveCfg(); renderSettings(); });
+  $$('#setBody .mini button').forEach(b => b.onclick = () => { cfg[b.dataset.k] = b.dataset.v; saveCfg(); renderSettings(); });
+  $$('#setBody .txt').forEach(i => i.oninput = () => { cfg[i.dataset.k] = i.value; saveCfg(); });
+}
+let setSnap = '';
+function openSettings() { setSnap = cfg.res + '|' + cfg.mic; renderSettings(); show('#sheet', true); }
+async function closeSettings() {
+  show('#sheet', false);
+  if (setSnap !== cfg.res + '|' + cfg.mic && stream && !rec.on) { try { await openCamera(); } catch (e) { reportError(e); } }
+  else if (setSnap !== cfg.res + '|' + cfg.mic && rec.on) toast('畫質／麥克風變更將於下次錄影生效');
+}
+
+function syncSport() { $$('#sportSeg button').forEach(b => b.classList.toggle('on', b.dataset.sport === cfg.sport)); }
+
+/* --- 安裝視窗：依平台顯示對應步驟 --- */
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+window.addEventListener('appinstalled', () => { deferredPrompt = null; toast('已安裝到主畫面'); show('#modal', false); });
+function openInstall() {
+  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1), and = /Android/.test(ua);
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let lead, steps;
+  if (ios) { lead = 'iPhone／iPad 請使用 Safari 開啟本頁：'; steps = ['點選底部工具列的「分享」圖示（方框加向上箭頭）', '往下滑，選擇「加入主畫面」', '確認名稱後點右上角「新增」，之後從主畫面開啟即為全螢幕 APP']; }
+  else if (and) { lead = 'Android 請使用 Chrome 開啟本頁：'; steps = ['點選右上角「⋮」選單', '選擇「安裝應用程式」（或「加到主畫面」）', '確認後從桌面或應用程式列表開啟']; }
+  else { lead = '電腦請使用 Chrome 或 Edge：'; steps = ['點選網址列右側的「安裝」圖示（螢幕加向下箭頭）', '在彈出視窗點「安裝」', '之後可從桌面或開始選單像一般軟體開啟']; }
+  $('#modLead').textContent = lead; $('#modSteps').innerHTML = steps.map(s => `<li>${s}</li>`).join('');
+  $('#btnDoInstall').classList.toggle('hidden', !deferredPrompt);
+  $('#modStat').textContent = standalone ? '目前已在獨立 APP 模式執行。' : '安裝後可離線開啟；錄影與軌跡皆儲存在本機，不會上傳。';
+  show('#modal', true);
+}
+
+/* --- 啟動流程 --- */
+async function startAll() {
+  const err = $('#introErr'); err.textContent = '';
+  try {
+    await openCamera();
+    startGPS(); updateChip();
+    show('#intro', false); store.set('tracecam.onboard', true);
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}   // 要求持久儲存，避免影片被清除
+  } catch (e) {
+    err.textContent = e.name === 'NotAllowedError' ? '相機權限被拒絕，請到瀏覽器／系統設定允許後再試一次'
+      : e.name === 'NotFoundError' ? '找不到可用的相機' : (e.message || String(e));
+    closeCamera();
+  }
+}
+
+function bind() {
+  $('#btnStart').onclick = startAll;
+  $('#btnIntroHist').onclick = openHist;
+  $('#btnHist').onclick = openHist;
+  $('#btnSet').onclick = openSettings; $('#setClose').onclick = closeSettings;
+  $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSettings(); });
+  $('#btnInstall').onclick = openInstall; $('#modClose').onclick = () => show('#modal', false);
+  $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') show('#modal', false); });
+  $('#btnDoInstall').onclick = async () => { try { if (deferredPrompt) { deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; show('#modal', false); } } catch (e) { reportError(e); } };
+  $('#btnRec').onclick = () => rec.on ? stopRec() : startRec();
+  $('#btnFlip').onclick = async () => {
+    if (rec.on) return; cfg.facing = cfg.facing === 'environment' ? 'user' : 'environment'; saveCfg();
+    try { await openCamera(); } catch (e) { reportError(e); }
+  };
+  $$('#sportSeg button').forEach(b => b.onclick = () => { if (rec.on) return; cfg.sport = b.dataset.sport; saveCfg(); syncSport(); });
+  document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && $('#intro').classList.contains('hidden') && stream) { e.preventDefault(); $('#btnRec').click(); } });
+  window.addEventListener('beforeunload', e => { if (rec.on) { e.preventDefault(); e.returnValue = ''; } });
+}
+
+/* ------------------------------------------------------------------
+   9) PWA：Service Worker 註冊與「有新版本可用」提示
+   ------------------------------------------------------------------ */
+function showUpdate(worker) {
+  const b = $('#update'); b.classList.remove('hidden');
+  b.onclick = () => {
+    if (rec.on) return toast('請先結束錄影再更新');
+    b.classList.add('hidden');
+    worker.postMessage('SKIP_WAITING');             // 通知新版 SW 立即接管；controllerchange 後自動重新載入
+  };
+}
+function setupSW() {
+  if (!('serviceWorker' in navigator)) return;
+  const okHost = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (!okHost) return;                              // 僅在 https 或 localhost 註冊
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing; if (!nw) return;
+      nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw); });
+    });
+    setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(e => console.warn('SW 註冊失敗', e));
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) return; reloading = true; location.reload(); });
+}
+
+/* ------------------------------------------------------------------
+   啟動
+   ------------------------------------------------------------------ */
+(async function init() {
+  try {
+    hydrateIcons(); bind(); syncSport(); setupSW(); updateChip();
+    requestAnimationFrame(loop);
+    // 曾授權過者，嘗試直接啟動；若需要手勢或被拒絕，保留簡介頁讓使用者點擊
+    if (store.get('tracecam.onboard', false)) {
+      try { await openCamera(); startGPS(); show('#intro', false); } catch (e) { /* 留在簡介頁 */ }
+    }
+  } catch (e) { reportError(e); }
+})();
+})();
+</script>
+</body>
+</html>
