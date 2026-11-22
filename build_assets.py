@@ -12,7 +12,8 @@ import segno, cv2, numpy as np
 URL = sys.argv[1] if len(sys.argv) > 1 else "https://mathedu-prog.github.io/tracecam/"
 if not URL.endswith("/"):
     URL += "/"
-INSTALL_URL = URL  # QR 指向正式網址（App 首頁）
+APP_URL = URL                      # App 正式網址
+INSTALL_URL = URL + "install.html" # QR 指向安裝教學頁：手機掃描後直接看到「一鍵安裝」
 
 BG, ACCENT, WHITE = (11, 13, 16), (255, 107, 44), (242, 245, 248)
 
@@ -151,11 +152,11 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
     <div class="code">__QR_SVG__</div>
     <div>
       <h2>掃描 QR Code 開啟</h2>
-      <p class="sub">用手機相機掃描，開啟後依下方步驟加入主畫面。</p>
+      <p class="sub">用手機相機掃描，開啟本頁後按上方「一鍵安裝」。</p>
       <div class="url" id="u">__URL__</div>
       <div class="btns">
         <button class="p" id="copy"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span id="ct">複製連結</span></button>
-        <a class="b" href="__URL__" target="_blank" rel="noopener"><svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>直接開啟</a>
+        <a class="b" href="__APP_URL__" target="_blank" rel="noopener"><svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>直接開啟</a>
         <button id="print"><svg class="i" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>列印此頁</button>
       </div>
     </div>
@@ -204,7 +205,7 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 <script>
 (function(){
   var url = document.getElementById('u').textContent.trim();
-  var APP = url;   /* 本專案 QR 與「直接開啟」皆指向 App 首頁 */
+  var APP = "__APP_URL__";
   var ua = navigator.userAgent;
   var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
   var android = /Android/.test(ua);
@@ -266,6 +267,6 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 </body>
 </html>
 '''
-html = html.replace("__QR_SVG__", svg_inline).replace("__URL__", INSTALL_URL)
+html = html.replace("__QR_SVG__", svg_inline).replace("__APP_URL__", APP_URL).replace("__URL__", INSTALL_URL)
 open("install.html", "w", encoding="utf-8").write(html)
 print("install.html 完成")
