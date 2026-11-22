@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>安裝 TraceCam｜安裝教學</title>
+<title>安裝 跡錄 TraceCam｜安裝教學</title>
 <meta name="theme-color" content="#0b0d10">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/png" href="./icon-192.png">
@@ -54,7 +54,7 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 </head>
 <body>
 <div class="wrap">
-  <header><img src="./icon-192.png" alt="TraceCam"><div><h1>安裝 TraceCam</h1><p>運動錄影疊加：即時地圖、速度、距離、海拔，拍完免後製</p></div></header>
+  <header><img src="./icon-192.png" alt="跡錄 TraceCam"><div><h1>安裝「跡錄」</h1><p>TraceCam・運動錄影疊加：即時地圖、速度、距離、海拔，拍完免後製</p></div></header>
 
   <section class="card hero">
     <button class="p big" id="oneclick"><svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>一鍵安裝</button>
@@ -81,7 +81,7 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
     <ol>
       <li><span>在 Safari 開啟上方網址，點選工具列的<b class="k">分享</b>圖示（方框加向上箭頭）。</span></li>
       <li><span>在選單中往下滑，點選<b class="k">加入主畫面</b>。</span></li>
-      <li><span>確認名稱「TraceCam」，點右上角<b class="k">新增</b>。</span></li>
+      <li><span>確認名稱「跡錄」，點右上角<b class="k">新增</b>。</span></li>
       <li><span>從主畫面開啟，首次請允許<b class="k">相機</b>、<b class="k">麥克風</b>與<b class="k">定位</b>（建議選「使用 App 期間」）。</span></li>
     </ol>
     <div class="tip">錄影完成後，在行程詳情點「儲存／分享影片」→ 選擇「儲存視訊」即可存入相簿。</div>
@@ -141,12 +141,12 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 
   function setStatus(msg, ok){ st.textContent = msg; st.className = 'st' + (ok ? ' ok' : ''); }
 
-  if (standalone) { btn.innerHTML = btn.innerHTML.replace('一鍵安裝','開啟 TraceCam'); setStatus('已安裝，正在 App 模式中', true); }
+  if (standalone) { btn.innerHTML = btn.innerHTML.replace('一鍵安裝','開啟 跡錄'); setStatus('已安裝，正在 App 模式中', true); }
   else if (ios) { setStatus(safari ? 'iPhone 無法自動安裝，點按鈕會顯示 3 個步驟' : '請先用 Safari 開啟（目前不是 Safari）'); }
   else { setStatus('點一下即可安裝到主畫面'); }
 
   window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferred = e; setStatus('瀏覽器已準備好，點一下即可安裝', true); });
-  window.addEventListener('appinstalled', function(){ deferred=null; setStatus('安裝完成 ✓ 請從主畫面開啟 TraceCam', true); });
+  window.addEventListener('appinstalled', function(){ deferred=null; setStatus('安裝完成 ✓ 請從主畫面開啟 跡錄', true); });
 
   btn.onclick = async function(){
     try {
