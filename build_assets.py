@@ -56,14 +56,54 @@ make_icon(180, maskable=True).convert("RGB").save("apple-touch-icon.png")  # iOS
 print("圖示完成")
 
 # ---------------------------------------------------------------- QR Code
-qr = segno.make(INSTALL_URL, error="m", micro=False)
+qr = segno.make(INSTALL_URL, error="h", micro=False)   # 容錯 H：中央可放 App 辨識圖案
 # 內嵌 SVG（不依賴外部服務）
 buf = io.BytesIO()
 qr.save(buf, kind="svg", scale=1, border=2, dark="#000000", light="#ffffff", xmldecl=False, svgns=True, omitsize=True, nl=False)
 svg_inline = buf.getvalue().decode("utf-8")
 svg_inline = svg_inline.replace("<svg ", '<svg role="img" aria-label="安裝 QR Code" shape-rendering="crispEdges" ', 1)
+LOGO_RATIO = 0.21   # 圖案佔 QR 寬度比例（容錯 H 下安全範圍內）
+def logo_svg(modules, border=2):
+    N = modules + 2 * border; c = N / 2.0
+    L = modules * LOGO_RATIO; pad = L * 0.09
+    inner = L - 2 * pad; u = inner * 0.74 / 24.0
+    pts = []
+    for i in range(0, 61):
+        t = i / 60.0
+        x = 6 + 12 * t; y = 19 - 14 * t + 3.2 * math.sin(t * math.pi * 2.2)
+        pts.append((c + (x - 12) * u, c + (y - 12) * u))
+    d = "M" + " L".join("%.3f,%.3f" % p for p in pts)
+    r_dot = 2.6 * u
+    return (
+        '<g id="app-logo">'
+        '<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" rx="%.3f" fill="#ffffff"/>'
+        '<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" rx="%.3f" fill="#0b0d10"/>'
+        '<path d="%s" fill="none" stroke="#ff6b2c" stroke-width="%.3f" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#0b0d10" stroke="#f2f5f8" stroke-width="%.3f"/>'
+        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#0b0d10" stroke="#f2f5f8" stroke-width="%.3f"/>'
+        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#ef4444"/></g>'
+    ) % (c - L/2, c - L/2, L, L, L*0.24,
+         c - inner/2, c - inner/2, inner, inner, inner*0.22,
+         d, 2.7 * u,
+         pts[0][0], pts[0][1], r_dot, 2.0 * u,
+         pts[-1][0], pts[-1][1], r_dot, 2.0 * u,
+         c + (20.2 - 12) * u, c + (3.8 - 12) * u, 1.7 * u)
+
+svg_inline = svg_inline.replace("</svg>", logo_svg(qr.symbol_size(border=0)[0]) + "</svg>")
+
 # PNG（qr-install.png）：每模組 16px，含 4 模組安靜區
 qr.save("qr-install.png", scale=16, border=4, dark="#000000", light="#ffffff")
+# 在 PNG 中央疊上 App 圖示（白色圓角底 + 圖示）
+_q = Image.open("qr-install.png").convert("RGB"); _w = _q.size[0]
+_L = int(_w * LOGO_RATIO * (qr.symbol_size(border=0)[0] / (qr.symbol_size(border=0)[0] + 8)) * 1.0 * ((qr.symbol_size(border=0)[0] + 8) / qr.symbol_size(border=0)[0]))
+_L = int(qr.symbol_size(border=0)[0] * 16 * LOGO_RATIO); _pad = int(_L * 0.09)
+_base = Image.new("RGBA", (_L, _L), (0, 0, 0, 0)); _m = Image.new("L", (_L * 4, _L * 4), 0)
+ImageDraw.Draw(_m).rounded_rectangle([0, 0, _L * 4 - 1, _L * 4 - 1], radius=int(_L * 4 * 0.24), fill=255)
+_base.paste((255, 255, 255, 255), (0, 0), _m.resize((_L, _L), Image.LANCZOS))
+_ic = make_icon(_L - 2 * _pad).convert("RGBA")
+_base.alpha_composite(_ic, (_pad, _pad))
+_q.paste(_base, ((_w - _L) // 2, (_w - _L) // 2), _base)
+_q.save("qr-install.png")
 print("QR 完成")
 
 # ---------------------------------------------------------------- 解碼驗證
@@ -90,7 +130,7 @@ html = r'''<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>安裝 TraceCam｜安裝教學</title>
+<title>安裝 跡錄 TraceCam｜安裝教學</title>
 <meta name="theme-color" content="#0b0d10">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/png" href="./icon-192.png">
@@ -141,7 +181,7 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 </head>
 <body>
 <div class="wrap">
-  <header><img src="./icon-192.png" alt="TraceCam"><div><h1>安裝 TraceCam</h1><p>運動錄影疊加：即時地圖、速度、距離、海拔，拍完免後製</p></div></header>
+  <header><img src="./icon-192.png" alt="跡錄 TraceCam"><div><h1>安裝「跡錄」</h1><p>TraceCam・運動錄影疊加：即時地圖、速度、距離、海拔，拍完免後製</p></div></header>
 
   <section class="card hero">
     <button class="p big" id="oneclick"><svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>一鍵安裝</button>
@@ -168,7 +208,7 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
     <ol>
       <li><span>在 Safari 開啟上方網址，點選工具列的<b class="k">分享</b>圖示（方框加向上箭頭）。</span></li>
       <li><span>在選單中往下滑，點選<b class="k">加入主畫面</b>。</span></li>
-      <li><span>確認名稱「TraceCam」，點右上角<b class="k">新增</b>。</span></li>
+      <li><span>確認名稱「跡錄」，點右上角<b class="k">新增</b>。</span></li>
       <li><span>從主畫面開啟，首次請允許<b class="k">相機</b>、<b class="k">麥克風</b>與<b class="k">定位</b>（建議選「使用 App 期間」）。</span></li>
     </ol>
     <div class="tip">錄影完成後，在行程詳情點「儲存／分享影片」→ 選擇「儲存視訊」即可存入相簿。</div>
@@ -228,12 +268,12 @@ b.k{background:var(--soft);color:var(--accent);padding:0 6px;border-radius:6px;f
 
   function setStatus(msg, ok){ st.textContent = msg; st.className = 'st' + (ok ? ' ok' : ''); }
 
-  if (standalone) { btn.innerHTML = btn.innerHTML.replace('一鍵安裝','開啟 TraceCam'); setStatus('已安裝，正在 App 模式中', true); }
+  if (standalone) { btn.innerHTML = btn.innerHTML.replace('一鍵安裝','開啟 跡錄'); setStatus('已安裝，正在 App 模式中', true); }
   else if (ios) { setStatus(safari ? 'iPhone 無法自動安裝，點按鈕會顯示 3 個步驟' : '請先用 Safari 開啟（目前不是 Safari）'); }
   else { setStatus('點一下即可安裝到主畫面'); }
 
   window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferred = e; setStatus('瀏覽器已準備好，點一下即可安裝', true); });
-  window.addEventListener('appinstalled', function(){ deferred=null; setStatus('安裝完成 ✓ 請從主畫面開啟 TraceCam', true); });
+  window.addEventListener('appinstalled', function(){ deferred=null; setStatus('安裝完成 ✓ 請從主畫面開啟 跡錄', true); });
 
   btn.onclick = async function(){
     try {
