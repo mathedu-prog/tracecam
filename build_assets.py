@@ -18,41 +18,31 @@ INSTALL_URL = URL + "install.html" # QR 指向安裝教學頁：手機掃描後�
 BG, ACCENT, WHITE = (11, 13, 16), (255, 107, 44), (242, 245, 248)
 
 # ---------------------------------------------------------------- 圖示
+# 設計稿：icon-source.jpg（1024x1024，霓虹路線 + 單車 + 「跡錄 TraceCam」）
+from PIL import ImageFilter
+SRC = Image.open("icon-source.jpg").convert("RGB")
+TIGHT = SRC.crop((140, 140, 884, 884))   # 去掉外框，保留主視覺與文字
+
+def _rmask(n, r):
+    m = Image.new("L", (n * 4, n * 4), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, n * 4 - 1, n * 4 - 1], radius=int(n * 4 * r), fill=255)
+    return m.resize((n, n), Image.LANCZOS)
+
 def make_icon(size, maskable=False):
-    S = size * 4  # 超取樣抗鋸齒
-    img = Image.new("RGBA", (S, S), BG + (255,))
-    d = ImageDraw.Draw(img)
-    # maskable：內容需落在中央 80% 安全區；一般圖示用圓角並稍微放大內容
-    scale = 0.62 if maskable else 0.74
-    if not maskable:
-        m = Image.new("L", (S, S), 0)
-        ImageDraw.Draw(m).rounded_rectangle([0, 0, S - 1, S - 1], radius=int(S * 0.22), fill=255)
-        img.putalpha(m)
-    cx = cy = S / 2
-    u = S * scale / 24.0
-    ox, oy = cx - 12 * u, cy - 12 * u
-    P = lambda x, y: (ox + x * u, oy + y * u)
-    w = int(1.8 * u * 1.5)
-    # 路線線條（Lucide route 風格）：由左下蜿蜒到右上
-    pts = []
-    for t in range(0, 101):
-        t /= 100
-        x = 6 + 12 * t
-        y = 19 - 14 * t + 3.2 * math.sin(t * math.pi * 2.2)
-        pts.append(P(x, y))
-    d.line(pts, fill=ACCENT + (255,), width=w, joint="curve")
-    for (px, py) in (pts[0], pts[-1]):
-        r = 2.6 * u
-        d.ellipse([px - r, py - r, px + r, py + r], fill=BG + (255,), outline=WHITE + (255,), width=int(w * 0.8))
-    # 右上角錄影點
-    rx, ry = P(20.2, 3.8); r = 1.7 * u
-    d.ellipse([rx - r, ry - r, rx + r, ry + r], fill=(239, 68, 68, 255))
-    return img.resize((size, size), Image.LANCZOS)
+    """一般圖示：圓角透明；maskable：主視覺縮到 80% 安全區，底圖以設計稿模糊延伸（避免被圓形遮罩裁掉）"""
+    if maskable:
+        bg = SRC.resize((size, size), Image.LANCZOS).filter(ImageFilter.GaussianBlur(size * 0.06)).convert("RGBA")
+        inner = int(size * 0.80)
+        bg.paste(TIGHT.resize((inner, inner), Image.LANCZOS), ((size - inner) // 2, (size - inner) // 2))
+        return bg
+    im = TIGHT.resize((size, size), Image.LANCZOS).convert("RGBA")
+    im.putalpha(_rmask(size, 0.22))
+    return im
 
 make_icon(192).save("icon-192.png")
 make_icon(512).save("icon-512.png")
 make_icon(512, maskable=True).save("icon-maskable-512.png")
-make_icon(180, maskable=True).convert("RGB").save("apple-touch-icon.png")  # iOS 不支援透明，使用滿版
+TIGHT.resize((180, 180), Image.LANCZOS).save("apple-touch-icon.png")  # iOS 不支援透明，使用滿版（系統自動加圓角）
 print("圖示完成")
 
 # ---------------------------------------------------------------- QR Code
@@ -63,31 +53,18 @@ qr.save(buf, kind="svg", scale=1, border=2, dark="#000000", light="#ffffff", xml
 svg_inline = buf.getvalue().decode("utf-8")
 svg_inline = svg_inline.replace("<svg ", '<svg role="img" aria-label="安裝 QR Code" shape-rendering="crispEdges" ', 1)
 LOGO_RATIO = 0.21   # 圖案佔 QR 寬度比例（容錯 H 下安全範圍內）
+import base64
+def _logo_data_uri(px=192):
+    base = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+    base.paste((255, 255, 255, 255), (0, 0), _rmask(px, 0.24))
+    pad = int(px * 0.09); ic = make_icon(px - 2 * pad)
+    base.alpha_composite(ic, (pad, pad))
+    bio = io.BytesIO(); base.quantize(colors=128, method=Image.FASTOCTREE, dither=Image.NONE).save(bio, "PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(bio.getvalue()).decode()
+
 def logo_svg(modules, border=2):
-    N = modules + 2 * border; c = N / 2.0
-    L = modules * LOGO_RATIO; pad = L * 0.09
-    inner = L - 2 * pad; u = inner * 0.74 / 24.0
-    pts = []
-    for i in range(0, 61):
-        t = i / 60.0
-        x = 6 + 12 * t; y = 19 - 14 * t + 3.2 * math.sin(t * math.pi * 2.2)
-        pts.append((c + (x - 12) * u, c + (y - 12) * u))
-    d = "M" + " L".join("%.3f,%.3f" % p for p in pts)
-    r_dot = 2.6 * u
-    return (
-        '<g id="app-logo">'
-        '<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" rx="%.3f" fill="#ffffff"/>'
-        '<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" rx="%.3f" fill="#0b0d10"/>'
-        '<path d="%s" fill="none" stroke="#ff6b2c" stroke-width="%.3f" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#0b0d10" stroke="#f2f5f8" stroke-width="%.3f"/>'
-        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#0b0d10" stroke="#f2f5f8" stroke-width="%.3f"/>'
-        '<circle cx="%.3f" cy="%.3f" r="%.3f" fill="#ef4444"/></g>'
-    ) % (c - L/2, c - L/2, L, L, L*0.24,
-         c - inner/2, c - inner/2, inner, inner, inner*0.22,
-         d, 2.7 * u,
-         pts[0][0], pts[0][1], r_dot, 2.0 * u,
-         pts[-1][0], pts[-1][1], r_dot, 2.0 * u,
-         c + (20.2 - 12) * u, c + (3.8 - 12) * u, 1.7 * u)
+    N = modules + 2 * border; c = N / 2.0; L = modules * LOGO_RATIO
+    return '<image id="app-logo" x="%.3f" y="%.3f" width="%.3f" height="%.3f" href="%s"/>' % (c - L / 2, c - L / 2, L, L, _logo_data_uri())
 
 svg_inline = svg_inline.replace("</svg>", logo_svg(qr.symbol_size(border=0)[0]) + "</svg>")
 
@@ -95,7 +72,6 @@ svg_inline = svg_inline.replace("</svg>", logo_svg(qr.symbol_size(border=0)[0]) 
 qr.save("qr-install.png", scale=16, border=4, dark="#000000", light="#ffffff")
 # 在 PNG 中央疊上 App 圖示（白色圓角底 + 圖示）
 _q = Image.open("qr-install.png").convert("RGB"); _w = _q.size[0]
-_L = int(_w * LOGO_RATIO * (qr.symbol_size(border=0)[0] / (qr.symbol_size(border=0)[0] + 8)) * 1.0 * ((qr.symbol_size(border=0)[0] + 8) / qr.symbol_size(border=0)[0]))
 _L = int(qr.symbol_size(border=0)[0] * 16 * LOGO_RATIO); _pad = int(_L * 0.09)
 _base = Image.new("RGBA", (_L, _L), (0, 0, 0, 0)); _m = Image.new("L", (_L * 4, _L * 4), 0)
 ImageDraw.Draw(_m).rounded_rectangle([0, 0, _L * 4 - 1, _L * 4 - 1], radius=int(_L * 4 * 0.24), fill=255)
