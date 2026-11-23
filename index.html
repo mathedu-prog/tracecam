@@ -211,7 +211,7 @@ a{color:var(--accent)}
       <p>錄影同時即時疊加路線地圖、速度、距離與海拔，拍完直接儲存，免後製。</p>
       <div class="feat">
         <div><i data-ic="map" data-s="20"></i>即時迷你地圖與 GPS 軌跡</div>
-        <div><i data-ic="gauge" data-s="20"></i>速度／分速、距離、海拔、時間</div>
+        <div><i data-ic="gauge" data-s="20"></i>速度／配速、距離、海拔、時間</div>
         <div><i data-ic="pin" data-s="20"></i>自訂浮水印，行程結束可回顧軌跡</div>
       </div>
       <button class="btn" id="btnStart"><i data-ic="camera" data-s="20"></i>開啟相機與定位</button>
@@ -337,13 +337,12 @@ const spdUnit = () => imp() ? 'mph' : 'km/h';
 const spdNum  = mps => mps * (imp() ? 2.236936 : 3.6);
 const distFmt = m => imp() ? { v:(m / 1609.344).toFixed(2), u:'mi' } : (m < 1000 ? { v:m.toFixed(0), u:'m' } : { v:(m / 1000).toFixed(2), u:'km' });
 const altFmt  = m => m == null ? { v:'--', u:imp() ? 'ft' : 'm' } : { v:(imp() ? m * 3.28084 : m).toFixed(0), u:imp() ? 'ft' : 'm' };
-/** 分速（跑者慣用說法：每公里幾分幾秒，例如 5'32"；英制為每英里） */
+/** 配速（分:秒 每公里／每英里，例如 5:32；含進位修正，避免出現 4:60） */
 function paceFmt(mps) {
-  const none = `-'--"`;
-  if (!mps || mps < 0.5) return none;
-  const sec = (imp() ? 1609.344 : 1000) / mps; if (sec > 5999) return none;
+  if (!mps || mps < 0.5) return '--:--';
+  const sec = (imp() ? 1609.344 : 1000) / mps; if (sec > 5999) return '--:--';
   let m = Math.floor(sec / 60), r = Math.round(sec % 60); if (r === 60) { m++; r = 0; }
-  return `${m}'${pad2(r)}"`;
+  return `${m}:${pad2(r)}`;
 }
 const paceUnit = () => imp() ? '/mi' : '/km';
 
@@ -645,7 +644,7 @@ function panelDims(s) {
   return { W:340 * s, H:pad + 22 * s + bigH + (n ? 10 * s + n * rowH : 0) + pad * .6 };
 }
 
-/** 數據面板：大字速度／分速 ＋ 距離、時間、海拔、均速 */
+/** 數據面板：大字速度／配速 ＋ 距離、時間、海拔、均速 */
 function drawStatsPanel(c, x, y, s) {
   const { elapsed, avg } = liveStats(), run = cfg.sport === 'run';
   const rows = [];
@@ -653,7 +652,7 @@ function drawStatsPanel(c, x, y, s) {
   if (cfg.showTime) rows.push(['時間', fmtDur(elapsed)]);
   if (cfg.showAlt && !SIDE_ELEV) { const a = altFmt(gps.alt); rows.push(['海拔', `${a.v} ${a.u}`]); }
   if (cfg.sport === 'hike') { const g = altFmt(rec.gain); rows.push(['爬升', `${g.v} ${g.u}`]); }
-  if (cfg.showAvg)  rows.push([run ? '均分速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
+  if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
   const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
   const al = alertSt.lvl, acol = al === 2 ? '#ef4444' : al === 1 ? '#fbbf24' : null;
@@ -663,7 +662,7 @@ function drawStatsPanel(c, x, y, s) {
     rr(c, x, y, W, H, 22 * s); c.fillStyle = al === 2 ? `rgba(239,68,68,${0.16 + 0.22 * pulse})` : 'rgba(251,191,36,.14)'; c.fill();
   }
   c.strokeStyle = acol || 'rgba(255,255,255,.14)'; c.lineWidth = (acol ? 3 : 1.5) * s; rr(c, x, y, W, H, 22 * s); c.stroke();
-  txt(c, al === 2 ? '超速' : run ? '分速' : '速度', x + pad, y + pad + 16 * s, `600 ${21 * s}px ${FONT}`, acol || '#ff8a55');
+  txt(c, al === 2 ? '超速' : run ? '配速' : '速度', x + pad, y + pad + 16 * s, `600 ${21 * s}px ${FONT}`, acol || '#ff8a55');
   const big = run ? paceFmt(gps.spd) : spdNum(gps.spd).toFixed(1);
   const bf = `700 ${80 * s}px ${FONT}`; c.font = bf;
   txt(c, big, x + pad, y + pad + 22 * s + bigH * .82, bf, acol || '#fff');
@@ -980,8 +979,8 @@ async function openDetail(id) {
       <div class="pane"><h3>完整軌跡（顏色代表速度，藍慢紅快）</h3><canvas id="dmap"></canvas></div>
       <div class="grid">
         ${st('route', '總距離', d.v, d.u)}${st('clock', '總時間', fmtDur(t.dur))}
-        ${run ? st('gauge', '平均分速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
-        ${run ? st('trend', '最快分速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
+        ${run ? st('gauge', '平均配速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
+        ${run ? st('trend', '最快配速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
         ${st('clock', '移動時間', fmtDur(t.moving))}${st('mountain', '累計爬升', a.v, a.u)}${t.sport === 'hike' ? st('mountain', '最高海拔', altFmt(maxAlt(t)).v, altFmt(maxAlt(t)).u) : ''}
         ${t.lim ? st('gauge', '速限', (imp() ? t.lim / 1.609344 : t.lim).toFixed(0), spdUnit()) + st('clock', '超速時間', fmtDur(overMs(t))) : ''}
       </div>
@@ -1007,11 +1006,11 @@ async function openDetail(id) {
    ------------------------------------------------------------------ */
 const maxAlt = t => { let m = null; t.pts.forEach(p => { if (p.al != null) m = m == null ? p.al : Math.max(m, p.al); }); return m; };
 
-/** 分享卡統計格（前 4 項供方形使用）；跑步用分速、健行突出爬升與最高海拔 */
+/** 分享卡統計格（前 4 項供方形使用）；跑步用配速、健行突出爬升與最高海拔 */
 function tripStatList(t) {
   const run = t.sport === 'run', d = distFmt(t.dist), g = altFmt(t.gain), ma = altFmt(maxAlt(t));
-  const avg = run ? ['平均分速', paceFmt(t.avg), paceUnit()] : ['平均速度', spdNum(t.avg).toFixed(1), spdUnit()];
-  const top = run ? ['最快分速', paceFmt(t.max), paceUnit()] : ['最高速度', spdNum(t.max).toFixed(1), spdUnit()];
+  const avg = run ? ['平均配速', paceFmt(t.avg), paceUnit()] : ['平均速度', spdNum(t.avg).toFixed(1), spdUnit()];
+  const top = run ? ['最快配速', paceFmt(t.max), paceUnit()] : ['最高速度', spdNum(t.max).toFixed(1), spdUnit()];
   const base = [['距離', d.v, d.u], ['時間', fmtDur(t.dur), '']];
   if (t.sport === 'hike') return base.concat([['累計爬升', g.v, g.u], ['最高海拔', ma.v, ma.u], avg, ['移動時間', fmtDur(t.moving), '']]);
   return base.concat([avg, top, ['累計爬升', g.v, g.u], ['移動時間', fmtDur(t.moving), '']]);
@@ -1227,7 +1226,7 @@ const SCHEMA = [
   { g:'數據顯示', items:[
     { k:'units', t:'seg', l:'單位', o:[['metric', '公制'], ['imperial', '英制']] },
     { k:'showDist', t:'tog', l:'距離' }, { k:'showTime', t:'tog', l:'時間' },
-    { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／分速' } ] },
+    { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／配速' } ] },
   { g:'螢幕兩側', items:[
     { k:'sideSpeed', t:'tog', l:'左側：速度條' }, { k:'sideElev', t:'tog', l:'右側：海拔剖面與坡度' },
     { t:'note', l:'空間不足時會自動隱藏。坡度由 GPS 海拔估算，低速或訊號差時會顯示 --。' } ] },
