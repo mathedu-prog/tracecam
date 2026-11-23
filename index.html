@@ -166,6 +166,7 @@ a{color:var(--accent)}
 /* 電腦版：相機區域置中並限制寬度 */
 @media (max-height:520px) and (orientation:landscape){
   .bottom::before{display:none}
+  .sportind{height:auto;padding:8px 10px;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:10px} .sportind .arr{display:none} #siName{white-space:nowrap}
   .bottom{left:auto;width:160px;top:60px;padding:0 calc(var(--sar) + 10px) 10px 0}
   .seg{flex-direction:column;margin-bottom:10px}
   .ctrl{flex-direction:column;gap:12px;height:auto}
@@ -619,9 +620,12 @@ function drawLiveMap(c, x, y, w, h, s) {
   rr(c, x, y, w, h, 22 * s); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2 * s; c.stroke();
 }
 
+/** 本幀右側海拔剖面是否真的顯示（空間不足會自動隱藏；顯示時面板就不再重複列出海拔） */
+let SIDE_ELEV = false;
+
 /** 數據面板尺寸（版面計算用，避免靠猜測高度） */
 function panelDims(s) {
-  const n = [cfg.showDist, cfg.showTime, cfg.showAlt, cfg.showAvg].filter(Boolean).length;
+  const n = [cfg.showDist, cfg.showTime, cfg.showAlt && !SIDE_ELEV, cfg.showAvg].filter(Boolean).length;
   const pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   return { W:340 * s, H:pad + 22 * s + bigH + (n ? 10 * s + n * rowH : 0) + pad * .6 };
 }
@@ -632,7 +636,7 @@ function drawStatsPanel(c, x, y, s) {
   const rows = [];
   if (cfg.showDist) { const d = distFmt(rec.dist); rows.push(['距離', `${d.v} ${d.u}`]); }
   if (cfg.showTime) rows.push(['時間', fmtDur(elapsed)]);
-  if (cfg.showAlt)  { const a = altFmt(gps.alt); rows.push(['海拔', `${a.v} ${a.u}`]); }
+  if (cfg.showAlt && !SIDE_ELEV) { const a = altFmt(gps.alt); rows.push(['海拔', `${a.v} ${a.u}`]); }
   if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
   const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
@@ -659,14 +663,12 @@ function drawStatsPanel(c, x, y, s) {
 
 /** 螢幕兩側：左側垂直速度條、右側海拔剖面（窄、半透明、貼邊；避開下方地圖與面板） */
 const NICE = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 200, 250, 300];
-function drawSides(c, W, H, s, g) {
+function sideLayout(W, H, s, g) {
   const wm = ((cfg.showWm && (cfg.wmText || '').trim()) || cfg.showClock || cfg.showCoords) ? 112 * s : 0;   // 浮水印高度（估算）
   let y0, y1; const stack = g.stack + 16 * s;
   if (g.top) { y0 = g.T + stack; y1 = H - g.B - wm; } else { y0 = g.T + wm; y1 = H - g.B - stack; }
-  const barH = Math.min(y1 - y0 - 16 * s, H * 0.36); if (barH < 150 * s) return;       // 空間不足就不畫，避免擠在一起
-  const yy = y0 + (y1 - y0 - barH) / 2;
-  if (cfg.sideSpeed) drawSpeedBar(c, g.L, yy, 64 * s, barH, s);
-  if (cfg.sideElev) drawElevPanel(c, W - g.R - 108 * s, yy, 108 * s, barH, s);
+  const barH = Math.min(y1 - y0 - 16 * s, H * 0.36); if (barH < 150 * s) return null;   // 空間不足就不畫，避免擠在一起
+  return { yy: y0 + (y1 - y0 - barH) / 2, barH };
 }
 function drawSpeedBar(c, x, y, w, h, s) {
   rr(c, x, y, w, h, 18 * s); c.fillStyle = 'rgba(10,12,15,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
@@ -775,6 +777,10 @@ function draw() {
   const L = m + INS.l, R = m + INS.r, T = m + INS.t, B = m + INS.b;     // 四邊安全邊界（避開浮動操作列）
   const left = cfg.mapPos[1] === 'l', top = cfg.mapPos[0] === 't';
   const mw = Math.max(90 * s, Math.min(W - L - R, H - T - B, Math.min(W, H) * ({ s:.28, m:.36, l:.46 }[cfg.mapSize] || .36))), mh = mw;
+  SIDE_ELEV = false;
+  const pdFull = panelDims(s);                                   // 先以完整列數估算，判斷兩側空間夠不夠
+  const SL = (cfg.sideSpeed || cfg.sideElev) ? sideLayout(W, H, s, { L, R, T, B, top, stack:Math.max(cfg.showMap ? mh : 0, pdFull.H) }) : null;
+  SIDE_ELEV = !!(SL && cfg.sideElev);                            // 右側剖面確定顯示，面板才拿掉「海拔」列
   const pd = panelDims(s), panelW = pd.W, panelH = pd.H;
   const px0 = left ? L : W - R - panelW, py0 = top ? T : H - B - panelH;
   if (cfg.showMap) {
@@ -784,7 +790,10 @@ function draw() {
     else drawStatsPanel(c, px0, top ? T + mh + 14 * s : H - B - mh - 14 * s - panelH, s);
   } else drawStatsPanel(c, px0, py0, s);
   drawWatermark(c, W, H, s, !top, T, B);
-  if (cfg.sideSpeed || cfg.sideElev) drawSides(c, W, H, s, { L, R, T, B, top, stack:Math.max(cfg.showMap ? mh : 0, panelH) });
+  if (SL) {
+    if (cfg.sideSpeed) drawSpeedBar(c, L, SL.yy, 64 * s, SL.barH, s);
+    if (cfg.sideElev) drawElevPanel(c, W - R - 108 * s, SL.yy, 108 * s, SL.barH, s);
+  }
   if (alertSt.lvl === 2) {                                      // 超速：整個畫面邊緣紅色呼吸光框
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 1200 * 2 * Math.PI);
     c.save(); c.strokeStyle = `rgba(239,68,68,${0.35 + 0.4 * pulse})`; c.lineWidth = 14 * s; c.strokeRect(7 * s, 7 * s, W - 14 * s, H - 14 * s); c.restore();
