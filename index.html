@@ -5,7 +5,7 @@
 <!-- viewport-fit=cover：讓畫面延伸到瀏海／圓角區域，搭配 env(safe-area-inset-*) 做安全區留白 -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>跡錄 TraceCam｜運動錄影疊加</title>
-<meta name="description" content="錄影同時即時疊加路線地圖、GPS 軌跡、速度、距離、海拔與時間，跑步、單車、機車皆適用，拍完免後製。">
+<meta name="description" content="錄影同時即時疊加路線地圖、GPS 軌跡、速度、距離、海拔與時間，跑步、健行、單車、機車皆適用，拍完免後製。">
 
 <!-- ===== PWA / iOS 獨立 APP 設定 ===== -->
 <meta name="theme-color" content="#0b0d10">
@@ -193,7 +193,7 @@ a{color:var(--accent)}
     </div>
 
     <div class="bottom">
-      <div class="sportind" id="sportInd" aria-live="polite"><span class="arr" id="siL"></span><span id="siIcon" style="display:flex"></span><b id="siName" style="font-weight:600"></b><span class="dots"><i></i><i></i><i></i></span><span class="arr" id="siR"></span></div>
+      <div class="sportind" id="sportInd" aria-live="polite"><span class="arr" id="siL"></span><span id="siIcon" style="display:flex"></span><b id="siName" style="font-weight:600"></b><span class="dots"><i></i><i></i><i></i><i></i></span><span class="arr" id="siR"></span></div>
       <div class="ctrl">
         <button class="side" id="btnHist" aria-label="歷史紀錄"><i data-ic="list" data-s="24"></i></button>
         <button class="recbtn" id="btnRec" aria-label="開始／結束錄影"><i></i></button>
@@ -211,7 +211,7 @@ a{color:var(--accent)}
       <p>錄影同時即時疊加路線地圖、速度、距離與海拔，拍完直接儲存，免後製。</p>
       <div class="feat">
         <div><i data-ic="map" data-s="20"></i>即時迷你地圖與 GPS 軌跡</div>
-        <div><i data-ic="gauge" data-s="20"></i>速度／配速、距離、海拔、時間</div>
+        <div><i data-ic="gauge" data-s="20"></i>速度／分速、距離、海拔、時間</div>
         <div><i data-ic="pin" data-s="20"></i>自訂浮水印，行程結束可回顧軌跡</div>
       </div>
       <button class="btn" id="btnStart"><i data-ic="camera" data-s="20"></i>開啟相機與定位</button>
@@ -250,6 +250,18 @@ a{color:var(--accent)}
       <a class="btn ghost sm" href="./install.html" target="_blank" rel="noopener" style="text-decoration:none"><i data-ic="book" data-s="18"></i>完整安裝教學與 QR Code</a>
     </div>
     <p class="note" id="modStat"></p>
+  </div></div>
+
+  <!-- ===== 軌跡記錄圖：直式 9:16／方形 1:1 ===== -->
+  <div id="card" class="sheet hidden"><div class="box">
+    <div class="grab"></div>
+    <div class="row" style="justify-content:space-between"><h3>產生軌跡圖</h3><button class="iconbtn" id="cardClose" aria-label="關閉"><i data-ic="x"></i></button></div>
+    <div class="row" style="justify-content:space-between;margin:14px 0 10px"><span>圖片比例</span>
+      <div class="mini" id="cardFmt"><button data-f="p">直式 9:16</button><button data-f="s">方形 1:1</button></div></div>
+    <input class="txt" id="cardText" style="width:100%" maxlength="30" placeholder="自訂文字，例如：七星山 登頂紀念">
+    <div class="pane" style="margin:12px 0;padding:10px;background:#000;display:grid;place-items:center"><canvas id="cardCv" style="max-width:100%;max-height:46vh;border-radius:10px"></canvas></div>
+    <div class="acts" style="margin-bottom:0"><button class="btn" id="cardShare"><i data-ic="share" data-s="18"></i>儲存／分享圖片</button><button class="btn ghost" id="cardDl"><i data-ic="download" data-s="18"></i>下載 PNG</button></div>
+    <p class="note" style="margin:10px 0 0">圖片會保留「© OpenStreetMap contributors」地圖來源標示。</p>
   </div></div>
 
   <div id="toast" role="status"></div>
@@ -301,6 +313,7 @@ const ICON = {
   book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   film:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 12h18"/>',
   check:'<path d="M20 6 9 17l-5-5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   expand:'<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   trend:'<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>'
 };
@@ -311,7 +324,7 @@ const hydrateIcons = (root = document) => $$('[data-ic]', root).forEach(el => { 
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pad2 = n => String(n).padStart(2, '0');
-const SPORT = { run:{ name:'跑步', icon:'run', zoom:17 }, bike:{ name:'單車', icon:'bike', zoom:16 }, moto:{ name:'機車', icon:'moto', zoom:15 } };
+const SPORT = { run:{ name:'跑步', icon:'run', zoom:17 }, hike:{ name:'健行', icon:'mountain', zoom:17 }, bike:{ name:'單車', icon:'bike', zoom:16 }, moto:{ name:'機車', icon:'moto', zoom:15 } };
 
 /** 時間格式：毫秒 → hh:mm:ss */
 function fmtDur(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor(s % 3600 / 60))}:${pad2(s % 60)}`; }
@@ -324,11 +337,13 @@ const spdUnit = () => imp() ? 'mph' : 'km/h';
 const spdNum  = mps => mps * (imp() ? 2.236936 : 3.6);
 const distFmt = m => imp() ? { v:(m / 1609.344).toFixed(2), u:'mi' } : (m < 1000 ? { v:m.toFixed(0), u:'m' } : { v:(m / 1000).toFixed(2), u:'km' });
 const altFmt  = m => m == null ? { v:'--', u:imp() ? 'ft' : 'm' } : { v:(imp() ? m * 3.28084 : m).toFixed(0), u:imp() ? 'ft' : 'm' };
-/** 配速（分:秒 每公里／每英里） */
+/** 分速（跑者慣用說法：每公里幾分幾秒，例如 5'32"；英制為每英里） */
 function paceFmt(mps) {
-  if (!mps || mps < 0.5) return '--:--';
-  const sec = (imp() ? 1609.344 : 1000) / mps; if (sec > 5999) return '--:--';
-  return `${Math.floor(sec / 60)}:${pad2(Math.round(sec % 60) % 60)}`;
+  const none = `-'--"`;
+  if (!mps || mps < 0.5) return none;
+  const sec = (imp() ? 1609.344 : 1000) / mps; if (sec > 5999) return none;
+  let m = Math.floor(sec / 60), r = Math.round(sec % 60); if (r === 60) { m++; r = 0; }
+  return `${m}'${pad2(r)}"`;
 }
 const paceUnit = () => imp() ? '/mi' : '/km';
 
@@ -361,7 +376,7 @@ const DEFAULTS = {
   units:'metric', showDist:true, showTime:true, showAlt:true, showAvg:true,
   showWm:true, wmText:'TraceCam', showClock:true, showCoords:false,
   sideSpeed:false, sideElev:false,                       // 螢幕兩側：左側速度條／右側海拔剖面
-  alertOn:false, lim:{ run:15, bike:30, moto:50 }        // 超速警示（速限一律以 km/h 儲存）
+  alertOn:false, lim:{ run:15, hike:6, bike:30, moto:50 }        // 超速警示（速限一律以 km/h 儲存）
 };
 let cfg = Object.assign({}, DEFAULTS, store.get('tracecam.cfg', {}));
 const saveCfg = () => store.set('tracecam.cfg', cfg);
@@ -625,19 +640,20 @@ let SIDE_ELEV = false;
 
 /** 數據面板尺寸（版面計算用，避免靠猜測高度） */
 function panelDims(s) {
-  const n = [cfg.showDist, cfg.showTime, cfg.showAlt && !SIDE_ELEV, cfg.showAvg].filter(Boolean).length;
+  const n = [cfg.showDist, cfg.showTime, cfg.showAlt && !SIDE_ELEV, cfg.showAvg, cfg.sport === 'hike'].filter(Boolean).length;
   const pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   return { W:340 * s, H:pad + 22 * s + bigH + (n ? 10 * s + n * rowH : 0) + pad * .6 };
 }
 
-/** 數據面板：大字速度／配速 ＋ 距離、時間、海拔、均速 */
+/** 數據面板：大字速度／分速 ＋ 距離、時間、海拔、均速 */
 function drawStatsPanel(c, x, y, s) {
   const { elapsed, avg } = liveStats(), run = cfg.sport === 'run';
   const rows = [];
   if (cfg.showDist) { const d = distFmt(rec.dist); rows.push(['距離', `${d.v} ${d.u}`]); }
   if (cfg.showTime) rows.push(['時間', fmtDur(elapsed)]);
   if (cfg.showAlt && !SIDE_ELEV) { const a = altFmt(gps.alt); rows.push(['海拔', `${a.v} ${a.u}`]); }
-  if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
+  if (cfg.sport === 'hike') { const g = altFmt(rec.gain); rows.push(['爬升', `${g.v} ${g.u}`]); }
+  if (cfg.showAvg)  rows.push([run ? '均分速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
   const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
   const al = alertSt.lvl, acol = al === 2 ? '#ef4444' : al === 1 ? '#fbbf24' : null;
@@ -647,7 +663,7 @@ function drawStatsPanel(c, x, y, s) {
     rr(c, x, y, W, H, 22 * s); c.fillStyle = al === 2 ? `rgba(239,68,68,${0.16 + 0.22 * pulse})` : 'rgba(251,191,36,.14)'; c.fill();
   }
   c.strokeStyle = acol || 'rgba(255,255,255,.14)'; c.lineWidth = (acol ? 3 : 1.5) * s; rr(c, x, y, W, H, 22 * s); c.stroke();
-  txt(c, al === 2 ? '超速' : run ? '配速' : '速度', x + pad, y + pad + 16 * s, `600 ${21 * s}px ${FONT}`, acol || '#ff8a55');
+  txt(c, al === 2 ? '超速' : run ? '分速' : '速度', x + pad, y + pad + 16 * s, `600 ${21 * s}px ${FONT}`, acol || '#ff8a55');
   const big = run ? paceFmt(gps.spd) : spdNum(gps.spd).toFixed(1);
   const bf = `700 ${80 * s}px ${FONT}`; c.font = bf;
   txt(c, big, x + pad, y + pad + 22 * s + bigH * .82, bf, acol || '#fff');
@@ -672,7 +688,7 @@ function sideLayout(W, H, s, g) {
 }
 function drawSpeedBar(c, x, y, w, h, s) {
   rr(c, x, y, w, h, 18 * s); c.fillStyle = 'rgba(10,12,15,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
-  const base = { run:20, bike:50, moto:120 }[cfg.sport], lim = cfg.alertOn ? (cfg.lim[cfg.sport] || 0) : 0;
+  const base = { run:20, hike:10, bike:50, moto:120 }[cfg.sport], lim = cfg.alertOn ? (cfg.lim[cfg.sport] || 0) : 0;
   const need = Math.max(base, spdNum(rec.max) * 1.15, (imp() ? lim / 1.609344 : lim) * 1.25), top = NICE.find(n => n >= need) || Math.ceil(need / 50) * 50;   // 顯示單位的刻度上限
   const mx = top / (imp() ? 2.236936 : 3.6);                                             // 換回 m/s
   const col = alertSt.lvl === 2 ? '#ef4444' : alertSt.lvl === 1 ? '#fbbf24' : '#ff6b2c';
@@ -964,14 +980,15 @@ async function openDetail(id) {
       <div class="pane"><h3>完整軌跡（顏色代表速度，藍慢紅快）</h3><canvas id="dmap"></canvas></div>
       <div class="grid">
         ${st('route', '總距離', d.v, d.u)}${st('clock', '總時間', fmtDur(t.dur))}
-        ${run ? st('gauge', '平均配速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
-        ${run ? st('trend', '最快配速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
-        ${st('clock', '移動時間', fmtDur(t.moving))}${st('mountain', '累計爬升', a.v, a.u)}
+        ${run ? st('gauge', '平均分速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
+        ${run ? st('trend', '最快分速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
+        ${st('clock', '移動時間', fmtDur(t.moving))}${st('mountain', '累計爬升', a.v, a.u)}${t.sport === 'hike' ? st('mountain', '最高海拔', altFmt(maxAlt(t)).v, altFmt(maxAlt(t)).u) : ''}
         ${t.lim ? st('gauge', '速限', (imp() ? t.lim / 1.609344 : t.lim).toFixed(0), spdUnit()) + st('clock', '超速時間', fmtDur(overMs(t))) : ''}
       </div>
       <div class="pane"><h3>速度變化</h3><canvas id="dchart"></canvas></div>
       <div class="acts">
         ${t.hasVideo ? `<button class="btn" id="aShare">${svg('share', 18)}儲存／分享影片</button>` : ''}
+        <button class="btn ghost" id="aCard">${svg('image', 18)}產生軌跡圖</button>
         <button class="btn ghost" id="aGpx">${svg('file', 18)}匯出 GPX</button>
       </div>
       <p class="note">iPhone 提示：點「儲存／分享影片」後選擇「儲存視訊」即可存入相簿。</p>`;
@@ -980,10 +997,131 @@ async function openDetail(id) {
       if (blob) { revokeUrl(); curUrl = URL.createObjectURL(blob); $('#dvid').src = curUrl; curTrip._blob = blob; }
     }
     if ($('#aShare')) $('#aShare').onclick = shareVideo;
-    $('#aGpx').onclick = exportGPX;
+    $('#aGpx').onclick = exportGPX; $('#aCard').onclick = openCard;
     requestAnimationFrame(drawDetail);
   } catch (e) { reportError(e); }
 }
+
+/* ------------------------------------------------------------------
+   軌跡記錄圖（分享卡）：直式 1080x1920／方形 1080x1080，可加自訂文字
+   ------------------------------------------------------------------ */
+const maxAlt = t => { let m = null; t.pts.forEach(p => { if (p.al != null) m = m == null ? p.al : Math.max(m, p.al); }); return m; };
+
+/** 分享卡統計格（前 4 項供方形使用）；跑步用分速、健行突出爬升與最高海拔 */
+function tripStatList(t) {
+  const run = t.sport === 'run', d = distFmt(t.dist), g = altFmt(t.gain), ma = altFmt(maxAlt(t));
+  const avg = run ? ['平均分速', paceFmt(t.avg), paceUnit()] : ['平均速度', spdNum(t.avg).toFixed(1), spdUnit()];
+  const top = run ? ['最快分速', paceFmt(t.max), paceUnit()] : ['最高速度', spdNum(t.max).toFixed(1), spdUnit()];
+  const base = [['距離', d.v, d.u], ['時間', fmtDur(t.dur), '']];
+  if (t.sport === 'hike') return base.concat([['累計爬升', g.v, g.u], ['最高海拔', ma.v, ma.u], avg, ['移動時間', fmtDur(t.moving), '']]);
+  return base.concat([avg, top, ['累計爬升', g.v, g.u], ['移動時間', fmtDur(t.moving), '']]);
+}
+function wrapText(c, text, maxW, maxLines) {
+  const lines = []; let cur = '';
+  for (const ch of [...text]) {
+    if (c.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) { const out = lines.slice(0, maxLines); out[maxLines - 1] = out[maxLines - 1].replace(/.$/, '…'); return out; }
+  return lines;
+}
+const tilesPending = () => { for (const e of TILES.values()) if (!e.ok && !e.fail) return true; return false; };
+
+/** 分享卡內的軌跡地圖：自動涵蓋全程，路線以速度上色 */
+function drawCardMap(c, x, y, w, h, t, onTile) {
+  const pts = t.pts; c.save(); rr(c, x, y, w, h, 36); c.clip();
+  if (!pts.length) { c.fillStyle = '#151a20'; c.fillRect(x, y, w, h); txt(c, '沒有 GPS 軌跡資料', x + w / 2, y + h / 2, `500 32px ${FONT}`, '#8b96a3', 'center'); }
+  else {
+    let a = 90, b = -90, o = 180, p = -180;
+    pts.forEach(q => { a = Math.min(a, q.la); b = Math.max(b, q.la); o = Math.min(o, q.lo); p = Math.max(p, q.lo); });
+    const k = 1.5, pad = 80; let z;
+    for (z = 18; z > 2; z--) { if (lon2px(p, z) - lon2px(o, z) <= (w - 2 * pad) / k && lat2px(a, z) - lat2px(b, z) <= (h - 2 * pad) / k) break; }
+    const P = drawBase(c, x, y, w, h, { lat:(a + b) / 2, lon:(o + p) / 2, z, k }, 'dark', onTile);
+    const mx = Math.max(...pts.map(q => q.sp), 0.1);
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 16; c.beginPath(); pts.forEach((q, i) => { const r = P(q.la, q.lo); i ? c.lineTo(r.x, r.y) : c.moveTo(r.x, r.y); }); c.stroke();
+    for (let i = 1; i < pts.length; i++) { const A = P(pts[i - 1].la, pts[i - 1].lo), B = P(pts[i].la, pts[i].lo); c.strokeStyle = spdColor(pts[i].sp / mx); c.lineWidth = 10; c.beginPath(); c.moveTo(A.x, A.y); c.lineTo(B.x, B.y); c.stroke(); }
+    const dot = (q, col) => { const r = P(q.la, q.lo); c.beginPath(); c.arc(r.x, r.y, 15, 0, 7); c.fillStyle = col; c.fill(); c.lineWidth = 5; c.strokeStyle = '#fff'; c.stroke(); };
+    dot(pts[0], '#34d399'); dot(pts[pts.length - 1], '#ef4444');
+  }
+  c.restore(); rr(c, x, y, w, h, 36); c.strokeStyle = 'rgba(255,255,255,.18)'; c.lineWidth = 2; c.stroke();
+}
+
+function drawCard(cv, t, fmt, title, onTile) {
+  const portrait = fmt === 'p', W = 1080, H = portrait ? 1920 : 1080, sp = SPORT[t.sport] || SPORT.bike;
+  cv.width = W; cv.height = H; const c = cv.getContext('2d');
+  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#141a22'); bg.addColorStop(1, '#0b0d10'); c.fillStyle = bg; c.fillRect(0, 0, W, H);
+  const pad = portrait ? 60 : 54;
+  // 標題（自訂文字；留空則用運動名稱）＋ 副標
+  const tf = `700 ${portrait ? 76 : 58}px ${FONT}`; c.font = tf;
+  const lines = wrapText(c, (title || '').trim() || `${sp.name}紀錄`, W - 2 * pad, portrait ? 2 : 1), lh = portrait ? 90 : 68, y0 = portrait ? 140 : 108;
+  lines.forEach((l, i) => txt(c, l, pad, y0 + i * lh, tf, '#fff'));
+  const subY = y0 + (lines.length - 1) * lh + (portrait ? 58 : 46);
+  txt(c, `${sp.name}  ·  ${fmtDate(t.start)}`, pad, subY, `500 ${portrait ? 34 : 28}px ${FONT}`, '#ff8a55');
+  // 地圖
+  const my = subY + (portrait ? 40 : 28), mh = portrait ? 900 : 1080 - my - 330;
+  drawCardMap(c, pad, my, W - 2 * pad, mh, t, onTile);
+  // 統計格
+  const stats = tripStatList(t), cols = portrait ? 2 : 4, list = portrait ? stats : stats.slice(0, 4), gap = portrait ? 20 : 14;
+  const tw = (W - 2 * pad - gap * (cols - 1)) / cols, th = portrait ? 126 : 150, sy = my + mh + (portrait ? 40 : 26);
+  list.forEach((st, i) => {
+    const x = pad + (i % cols) * (tw + gap), y = sy + Math.floor(i / cols) * (th + gap);
+    rr(c, x, y, tw, th, 24); c.fillStyle = 'rgba(255,255,255,.06)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 2; c.stroke();
+    txt(c, st[0], x + 22, y + 38, `500 ${portrait ? 26 : 22}px ${FONT}`, '#9aa5b1');
+    let vf = portrait ? 54 : 44; c.font = `700 ${vf}px ${FONT}`;
+    const full = () => { c.font = `700 ${vf}px ${FONT}`; const vw = c.measureText(st[1]).width; c.font = `500 ${Math.round(vf * .5)}px ${FONT}`; return vw + (st[2] ? 8 + c.measureText(st[2]).width : 0); };
+    while (full() > tw - 40 && vf > 28) vf -= 2;
+    c.font = `700 ${vf}px ${FONT}`; const vw = c.measureText(st[1]).width;
+    txt(c, st[1], x + 22, y + th - 24, `700 ${vf}px ${FONT}`, '#fff');
+    if (st[2]) txt(c, st[2], x + 22 + vw + 8, y + th - 24, `500 ${Math.round(vf * .5)}px ${FONT}`, '#c4ccd6');
+  });
+  // 直式：速度曲線
+  if (portrait && t.pts.length > 1) {
+    const cy = sy + 3 * (th + gap) + 6, ch = 1920 - 130 - cy; if (ch > 40) {
+      const pts = t.pts, mx = Math.max(...pts.map(q => q.sp), 1), t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1, x0 = pad, x1 = W - pad;
+      const X = q => x0 + (q.t - t0) / Math.max(1, t1 - t0) * (x1 - x0), Y = q => cy + ch - q.sp / mx * ch;
+      c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q))); c.lineTo(x1, cy + ch); c.lineTo(x0, cy + ch); c.closePath(); c.fillStyle = 'rgba(255,107,44,.18)'; c.fill();
+      c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q))); c.strokeStyle = '#ff6b2c'; c.lineWidth = 4; c.lineJoin = 'round'; c.stroke();
+    }
+  }
+  // 頁尾：品牌＋圖資來源（OSM 授權要求保留）
+  const fy = H - (portrait ? 70 : 40);
+  txt(c, '跡錄 TraceCam', pad, fy, `700 ${portrait ? 36 : 28}px ${FONT}`, '#fff');
+  txt(c, '© OpenStreetMap contributors', W - pad, fy, `${portrait ? 24 : 20}px ${FONT}`, '#6b7684', 'right');
+}
+
+let cardFmt = store.get('tracecam.cardFmt', 'p'), cardTok = 0, cardTimer;
+function renderCard() {
+  if (!curTrip) return; const tok = ++cardTok;
+  try { drawCard($('#cardCv'), curTrip, cardFmt, $('#cardText').value, () => { if (tok === cardTok) { clearTimeout(cardTimer); cardTimer = setTimeout(renderCard, 150); } }); } catch (e) { reportError(e); }
+}
+function openCard() {
+  if (!curTrip) return;
+  $('#cardText').value = store.get('tracecam.cardText', '');
+  $$('#cardFmt button').forEach(b => b.classList.toggle('on', b.dataset.f === cardFmt));
+  show('#card', true); renderCard();
+}
+/** 輸出 PNG：等圖磚載入完成（最多 5 秒）再重畫一次，避免地圖是空白格線 */
+async function cardBlob() {
+  const t0 = Date.now(); while (tilesPending() && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 150));
+  renderCard();
+  return new Promise((res, rej) => { try { $('#cardCv').toBlob(b => b ? res(b) : rej(new Error('無法產生圖片')), 'image/png'); } catch (e) { rej(e); } });
+}
+const cardName = () => `TraceCam_${fmtClock(curTrip.start).replace(/[: ]/g, '-')}_${cardFmt === 'p' ? '9x16' : '1x1'}.png`;
+function bindCard() {
+  $('#cardClose').onclick = () => show('#card', false);
+  $('#card').addEventListener('click', e => { if (e.target.id === 'card') show('#card', false); });
+  $$('#cardFmt button').forEach(b => b.onclick = () => { cardFmt = b.dataset.f; store.set('tracecam.cardFmt', cardFmt); $$('#cardFmt button').forEach(x => x.classList.toggle('on', x === b)); renderCard(); });
+  let dt; $('#cardText').oninput = e => { store.set('tracecam.cardText', e.target.value); clearTimeout(dt); dt = setTimeout(renderCard, 150); };
+  $('#cardDl').onclick = async () => { try { downloadBlob(await cardBlob(), cardName()); } catch (e) { reportError(e); } };
+  $('#cardShare').onclick = async () => {
+    try {
+      const blob = await cardBlob(), file = new File([blob], cardName(), { type:'image/png' });
+      if (navigator.canShare && navigator.canShare({ files:[file] })) await navigator.share({ files:[file], title:'TraceCam 軌跡圖' }); else downloadBlob(blob, cardName());
+    } catch (e) { if (e && e.name !== 'AbortError') reportError(e); }
+  };
+}
+
 /** 超速累計時間（毫秒）：相鄰兩點間隔超過 5 秒視為訊號中斷，最多計 5 秒 */
 function overMs(t) {
   const lim = (t.lim || 0) / 3.6; if (!lim) return 0; let ms = 0;
@@ -991,7 +1129,7 @@ function overMs(t) {
   return ms;
 }
 function revokeUrl() { if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } }
-function closeDetail() { const v = $('#dvid'); if (v) v.pause(); revokeUrl(); show('#detail', false); curTrip = null; openHist(); }
+function closeDetail() { const v = $('#dvid'); if (v) v.pause(); revokeUrl(); show('#card', false); show('#detail', false); curTrip = null; openHist(); }
 
 async function shareVideo() {
   try {
@@ -1089,13 +1227,13 @@ const SCHEMA = [
   { g:'數據顯示', items:[
     { k:'units', t:'seg', l:'單位', o:[['metric', '公制'], ['imperial', '英制']] },
     { k:'showDist', t:'tog', l:'距離' }, { k:'showTime', t:'tog', l:'時間' },
-    { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／配速' } ] },
+    { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／分速' } ] },
   { g:'螢幕兩側', items:[
     { k:'sideSpeed', t:'tog', l:'左側：速度條' }, { k:'sideElev', t:'tog', l:'右側：海拔剖面與坡度' },
     { t:'note', l:'空間不足時會自動隱藏。坡度由 GPS 海拔估算，低速或訊號差時會顯示 --。' } ] },
   { g:'超速警示', items:[
     { k:'alertOn', t:'tog', l:'啟用超速警示（黃＝接近、紅＝超速）' },
-    { t:'lim', k:'run', l:'跑步速限' }, { t:'lim', k:'bike', l:'單車速限' }, { t:'lim', k:'moto', l:'機車速限' },
+    { t:'lim', k:'run', l:'跑步速限' }, { t:'lim', k:'hike', l:'健行速限' }, { t:'lim', k:'bike', l:'單車速限' }, { t:'lim', k:'moto', l:'機車速限' },
     { t:'note', l:'速限由你自行設定，僅供自我提醒，並非道路速限或法規依據。' } ] },
   { g:'浮水印', items:[
     { k:'showWm', t:'tog', l:'自訂文字' }, { k:'wmText', t:'text', l:'文字內容' },
@@ -1126,7 +1264,7 @@ async function closeSettings() {
   else if (setSnap !== cfg.res + '|' + cfg.mic && rec.on) toast('畫質／麥克風變更將於下次錄影生效');
 }
 
-const SPORT_ORDER = ['run', 'bike', 'moto'];
+const SPORT_ORDER = ['run', 'hike', 'bike', 'moto'];
 function cycleSport(d) {
   if (rec.on) return toast('錄影中無法切換運動', 1500);
   cfg.sport = SPORT_ORDER[(SPORT_ORDER.indexOf(cfg.sport) + d + SPORT_ORDER.length) % SPORT_ORDER.length];
@@ -1134,7 +1272,7 @@ function cycleSport(d) {
   try { navigator.vibrate && navigator.vibrate(12); } catch (e) {}
 }
 /** 第一次進入相機時提示一次滑動手勢 */
-function swipeHint() { if (store.get('tracecam.swipeHint', false)) return; store.set('tracecam.swipeHint', true); setTimeout(() => toast('小提示：左右滑動畫面可切換跑步／單車／機車', 3600), 900); }
+function swipeHint() { if (store.get('tracecam.swipeHint', false)) return; store.set('tracecam.swipeHint', true); setTimeout(() => toast('小提示：左右滑動畫面可切換跑步／健行／單車／機車', 3600), 900); }
 
 function syncSport(animate) {
   const i = SPORT_ORDER.indexOf(cfg.sport), sp = SPORT[cfg.sport];
@@ -1177,6 +1315,7 @@ async function startAll() {
 }
 
 function bind() {
+  bindCard();
   $('#btnStart').onclick = startAll;
   $('#btnIntroHist').onclick = openHist;
   $('#btnHist').onclick = openHist;

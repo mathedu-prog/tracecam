@@ -1,7 +1,7 @@
 {
   "name": "跡錄 TraceCam｜運動錄影疊加",
   "short_name": "跡錄",
-  "description": "錄影同時即時疊加路線地圖、GPS 軌跡、速度、距離與海拔，跑步、單車、機車皆適用。",
+  "description": "錄影同時即時疊加路線地圖、GPS 軌跡、速度、距離與海拔，跑步、健行、單車、機車皆適用。",
   "lang": "zh-Hant",
   "start_url": "./",
   "scope": "./",
