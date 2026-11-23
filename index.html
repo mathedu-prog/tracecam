@@ -37,7 +37,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-famil
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 .ic{display:block;flex:none}
 .hidden{display:none!important}
-#app{position:fixed;inset:0;height:100dvh;overflow:hidden}
+#app{position:fixed;inset:0;overflow:hidden}
 
 /* ---------- 相機主畫面 ---------- */
 #cam{position:absolute;inset:0;background:#000}
@@ -351,12 +351,13 @@ const store = {
 };
 const DEFAULTS = {
   sport:'bike', facing:'environment', res:'1080', mic:true, ratio:'screen',
-  showMap:true, mapPos:'bl', mapStyle:'dark', mapSize:'m', zoom:'0',
+  showMap:true, mapPos:'bl', mapStyle:'light', v:2, mapSize:'m', zoom:'0',
   units:'metric', showDist:true, showTime:true, showAlt:true, showAvg:true,
   showWm:true, wmText:'TraceCam', showClock:true, showCoords:false
 };
 let cfg = Object.assign({}, DEFAULTS, store.get('tracecam.cfg', {}));
 const saveCfg = () => store.set('tracecam.cfg', cfg);
+if (!cfg.v || cfg.v < 2) { cfg.v = 2; cfg.mapStyle = 'light'; saveCfg(); }   // 舊版預設為 CARTO 深色底圖，改版後一次性重設
 
 /** IndexedDB：trips 存行程資訊與軌跡、videos 存影片 Blob（分開存放，列表載入較快） */
 let _db;
@@ -471,15 +472,16 @@ function updateChip() {
 }
 
 /* ------------------------------------------------------------------
-   4) 地圖磚繪製（CARTO 底圖，資料 © OpenStreetMap contributors © CARTO）
-   無網路或無法載入時退回「格線＋軌跡」，疊加資訊仍可完整錄製
+   4) 地圖磚繪製（OpenStreetMap 標準圖磚，資料 © OpenStreetMap contributors）
+   「標準」直接使用原圖；「深色」在原圖上加暗化罩色；「無」只畫格線＋軌跡
+   無網路或無法載入時退回格線＋軌跡，疊加資訊仍可完整錄製
    ------------------------------------------------------------------ */
 const TILES = new Map();
 const lon2px = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
 const lat2px = (lat, z) => { const s = Math.sin(toRad(clamp(lat, -85.05, 85.05))); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
 
-function getTile(style, z, x, y, onLoad) {
-  const key = `${style}/${z}/${x}/${y}`; let e = TILES.get(key);
+function getTile(z, x, y, onLoad) {
+  const key = `${z}/${x}/${y}`; let e = TILES.get(key);
   if (e) {
     if (e.ok) return e.img;
     if (!e.fail || Date.now() - e.fail < 15000) return null;   // 載入中，或失敗後 15 秒內不重試
@@ -488,7 +490,7 @@ function getTile(style, z, x, y, onLoad) {
   e = { img, ok:false, fail:0 }; TILES.set(key, e);
   img.onload = () => { e.ok = true; onLoad && onLoad(); };
   img.onerror = () => { e.fail = Date.now(); };
-  img.src = `https://${'abcd'[(x + y) & 3]}.basemaps.cartocdn.com/${style === 'light' ? 'light_all' : 'dark_all'}/${z}/${x}/${y}@2x.png`;
+  img.src = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
   if (TILES.size > 450) TILES.delete(TILES.keys().next().value);
   return null;
 }
@@ -498,25 +500,27 @@ function getTile(style, z, x, y, onLoad) {
  * v = { lat, lon, z, k }：中心點、縮放層級、像素縮放倍率
  */
 function drawBase(c, x, y, w, h, v, style, onTile) {
-  c.fillStyle = style === 'light' ? '#e6eaee' : '#151a20'; c.fillRect(x, y, w, h);
-  const k = v.k, cx = lon2px(v.lon, v.z), cy = lat2px(v.lat, v.z);
+  const dz = (v.k >= 1.4 && v.z < 19) ? 1 : 0, tz = v.z + dz, k = v.k / 2 ** dz;   // 高解析畫布改取高一級圖磚，文字較清晰
+  c.fillStyle = style === 'none' ? '#151a20' : style === 'dark' ? '#c9ccd2' : '#e8e5de'; c.fillRect(x, y, w, h);
+  const cx = lon2px(v.lon, tz), cy = lat2px(v.lat, tz);
   const left = cx - w / (2 * k), top = cy - h / (2 * k), ww = w / k, hh = h / k;
   // 格線（底圖不可用時的視覺退路）
-  c.strokeStyle = style === 'light' ? 'rgba(0,0,0,.07)' : 'rgba(255,255,255,.06)'; c.lineWidth = 1; c.beginPath();
+  c.strokeStyle = style === 'none' ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.07)'; c.lineWidth = 1; c.beginPath();
   for (let gx = Math.ceil(left / 64) * 64; gx < left + ww; gx += 64) { const X = x + (gx - left) * k; c.moveTo(X, y); c.lineTo(X, y + h); }
   for (let gy = Math.ceil(top / 64) * 64; gy < top + hh; gy += 64) { const Y = y + (gy - top) * k; c.moveTo(x, Y); c.lineTo(x + w, Y); }
   c.stroke();
   if (style !== 'none') {
-    const n = 2 ** v.z;
+    const n = 2 ** tz;
     for (let ty = Math.floor(top / 256); ty <= Math.floor((top + hh) / 256); ty++) {
       if (ty < 0 || ty >= n) continue;
       for (let tx = Math.floor(left / 256); tx <= Math.floor((left + ww) / 256); tx++) {
-        const img = getTile(style, v.z, ((tx % n) + n) % n, ty, onTile);
+        const img = getTile(tz, ((tx % n) + n) % n, ty, onTile);
         if (img) c.drawImage(img, x + (tx * 256 - left) * k, y + (ty * 256 - top) * k, 256 * k + 0.6, 256 * k + 0.6);
       }
     }
+    if (style === 'dark') { c.fillStyle = 'rgba(8,12,18,.55)'; c.fillRect(x, y, w, h); }   // 深色：暗化罩色
   }
-  return (lat, lon) => ({ x: x + (lon2px(lon, v.z) - left) * k, y: y + (lat2px(lat, v.z) - top) * k });
+  return (lat, lon) => ({ x: x + (lon2px(lon, tz) - left) * k, y: y + (lat2px(lat, tz) - top) * k });
 }
 
 /** 速度 → 顏色（藍→紅漸層），用於詳情頁軌跡 */
@@ -576,7 +580,7 @@ function drawLiveMap(c, x, y, w, h, s) {
       c.beginPath(); c.arc(0, 0, 10 * s, 0, 7); c.fillStyle = '#ff6b2c'; c.fill(); c.lineWidth = 4 * s; c.strokeStyle = '#fff'; c.stroke();
     }
     c.restore();
-    if (cfg.mapStyle !== 'none') txt(c, '© OpenStreetMap © CARTO', x + w - 8 * s, y + h - 8 * s, `${10 * s}px ${FONT}`, cfg.mapStyle === 'light' ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)', 'right');
+    if (cfg.mapStyle !== 'none') txt(c, '© OpenStreetMap contributors', x + w - 8 * s, y + h - 8 * s, `${10 * s}px ${FONT}`, cfg.mapStyle === 'light' ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)', 'right');
   }
   c.restore();
   rr(c, x, y, w, h, 22 * s); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2 * s; c.stroke();
@@ -637,13 +641,13 @@ function computeInsets() {
   INS = { t:0, b:0, l:0, r:0 };
   if (cfg.ratio !== 'screen') return;
   try {
-    const vw = window.innerWidth, vh = window.innerHeight, k = view.height / vh;   // 螢幕 CSS 像素 → 畫布像素
+    const box = $('#viewport').getBoundingClientRect(), vw = box.width, vh = box.height, k = view.height / vh;   // 螢幕 CSS 像素 → 畫布像素
     const top = $('.top'), bot = $('.bottom'); if (!top || !bot) return;
     const tr = top.getBoundingClientRect(), br = bot.getBoundingClientRect(), cs = getComputedStyle(top);
     const sal = Math.max(0, (parseFloat(cs.paddingLeft) || 14) - 14), sar = Math.max(0, (parseFloat(cs.paddingRight) || 14) - 14);   // 左右安全區（橫向瀏海）
-    INS.t = Math.max(0, tr.bottom) * k; INS.l = sal * k; INS.r = sar * k;
-    if (br.width < vw * 0.6) INS.r = Math.max(INS.r, (vw - br.left) * k);          // 橫向：操作列在右側
-    else INS.b = Math.max(0, vh - br.top) * k;                                    // 直向：操作列在底部
+    INS.t = Math.max(0, tr.bottom - box.top) * k; INS.l = sal * k; INS.r = sar * k;
+    if (br.width < vw * 0.6) INS.r = Math.max(INS.r, (box.right - br.left) * k);          // 橫向：操作列在右側
+    else INS.b = Math.max(0, box.bottom - br.top) * k;                                    // 直向：操作列在底部
   } catch (e) { /* 取不到版面時維持 0 */ }
 }
 
@@ -657,7 +661,7 @@ function resizeCanvas() {
   const cap = cfg.res === '1080' ? 1920 : 1280;
   let w, h;
   if (cfg.ratio === 'screen') {
-    const vw = Math.max(1, window.innerWidth), vh = Math.max(1, window.innerHeight), ar = vw / vh;
+    const bx = $('#viewport').getBoundingClientRect(), vw = Math.max(1, bx.width || window.innerWidth), vh = Math.max(1, bx.height || window.innerHeight), ar = vw / vh;
     if (ar < 1) { h = cap; w = cap * ar; } else { w = cap; h = cap / ar; }
   } else {
     if (!video.videoWidth) return;
@@ -925,7 +929,7 @@ function drawDetailMap(t) {
   }
   const dot = (q, col) => { const r = P(q.la, q.lo); c.beginPath(); c.arc(r.x, r.y, 8 * k, 0, 7); c.fillStyle = col; c.fill(); c.lineWidth = 3 * k; c.strokeStyle = '#fff'; c.stroke(); };
   dot(pts[0], '#34d399'); dot(pts[pts.length - 1], '#ef4444');   // 起點綠、終點紅
-  txt(c, '© OpenStreetMap © CARTO', w - 8 * k, h - 8 * k, `${10 * k}px ${FONT}`, 'rgba(255,255,255,.45)', 'right');
+  txt(c, '© OpenStreetMap contributors', w - 8 * k, h - 8 * k, `${10 * k}px ${FONT}`, cfg.mapStyle === 'light' ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.5)', 'right');
 }
 function drawChart(t) {
   const cv = $('#dchart'); if (!cv) return; const { c, w, h, k } = fitCanvas(cv), pts = t.pts;
@@ -963,7 +967,7 @@ const SCHEMA = [
     { k:'showMap', t:'tog', l:'顯示迷你地圖' },
     { k:'mapPos', t:'seg', l:'位置', o:[['tl', '左上'], ['tr', '右上'], ['bl', '左下'], ['br', '右下']] },
     { k:'mapSize', t:'seg', l:'大小', o:[['s', '小'], ['m', '中'], ['l', '大']] },
-    { k:'mapStyle', t:'seg', l:'底圖', o:[['dark', '深色'], ['light', '淺色'], ['none', '無']] },
+    { k:'mapStyle', t:'seg', l:'底圖', o:[['light', '標準'], ['dark', '深色'], ['none', '無']] },
     { k:'zoom', t:'seg', l:'縮放', o:[['-1', '遠'], ['0', '標準'], ['1', '近']] } ] },
   { g:'數據顯示', items:[
     { k:'units', t:'seg', l:'單位', o:[['metric', '公制'], ['imperial', '英制']] },
