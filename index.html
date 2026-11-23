@@ -358,10 +358,13 @@ const DEFAULTS = {
   sport:'bike', facing:'environment', res:'1080', mic:true, ratio:'screen',
   showMap:true, mapPos:'bl', mapStyle:'light', v:2, mapSize:'m', zoom:'0',
   units:'metric', showDist:true, showTime:true, showAlt:true, showAvg:true,
-  showWm:true, wmText:'TraceCam', showClock:true, showCoords:false
+  showWm:true, wmText:'TraceCam', showClock:true, showCoords:false,
+  sideSpeed:false, sideElev:false,                       // 螢幕兩側：左側速度條／右側海拔剖面
+  alertOn:false, lim:{ run:15, bike:30, moto:50 }        // 超速警示（速限一律以 km/h 儲存）
 };
 let cfg = Object.assign({}, DEFAULTS, store.get('tracecam.cfg', {}));
 const saveCfg = () => store.set('tracecam.cfg', cfg);
+cfg.lim = Object.assign({}, DEFAULTS.lim, cfg.lim);
 if (!cfg.v || cfg.v < 2) { cfg.v = 2; cfg.mapStyle = 'light'; saveCfg(); }   // 舊版預設為 CARTO 深色底圖，改版後一次性重設
 
 /** IndexedDB：trips 存行程資訊與軌跡、videos 存影片 Blob（分開存放，列表載入較快） */
@@ -395,7 +398,26 @@ const dbDelTrip   = id => dbRun(['trips', 'videos'], 'readwrite', t => { t.objec
 /* ------------------------------------------------------------------
    3) GPS 引擎
    ------------------------------------------------------------------ */
-const gps = { lat:null, lon:null, alt:null, acc:null, spd:0, hdg:null, ts:0, last:null, weak:false, err:null, watch:null, trail:[] };
+const gps = { lat:null, lon:null, alt:null, acc:null, spd:0, hdg:null, ts:0, last:null, weak:false, err:null, watch:null, trail:[], dist:0, altS:null, hist:[], lastHist:0 };
+/** 超速警示狀態：lvl 0 正常／1 接近速限（黃）／2 超速（紅，持續 2 秒以上才轉紅，避免 GPS 瞬間跳動誤報） */
+const alertSt = { lvl:0, since:0 };
+function updateAlert(now) {
+  const lim = (cfg.lim[cfg.sport] || 0) / 3.6;
+  if (!cfg.alertOn || !lim) { alertSt.lvl = 0; alertSt.since = 0; return; }
+  const v = gps.spd, prev = alertSt.lvl;
+  if (v >= lim) { if (!alertSt.since) alertSt.since = now; alertSt.lvl = (now - alertSt.since >= 2000) ? 2 : 1; }
+  else { alertSt.since = 0; alertSt.lvl = v >= lim * 0.9 ? 1 : 0; }
+  if (alertSt.lvl === 2 && prev !== 2) { try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch (e) {} }   // 震動提示（Android）
+}
+/** 坡度 %：以最近約 30 公尺的平滑海拔差估算；距離不足或沒有海拔時回傳 null */
+function slopePct() {
+  if (gps.altS == null || gps.hist.length < 3) return null;
+  for (let i = gps.hist.length - 1; i >= 0; i--) {
+    const dd = gps.dist - gps.hist[i].d;
+    if (dd >= 30) return clamp((gps.altS - gps.hist[i].a) / dd * 100, -30, 30);
+  }
+  return null;
+}
 /** 錄影狀態：軌跡點、距離、移動時間、最高速、累計爬升 */
 const rec = { on:false, startTs:0, pts:[], dist:0, moving:0, max:0, gain:0, refAlt:null, lastPt:0, mr:null, chunks:[], mime:'', W:0, H:0, saving:false };
 
@@ -446,6 +468,12 @@ function onPos(p) {
 
     gps.lat = c.latitude; gps.lon = c.longitude; gps.alt = (c.altitude != null && isFinite(c.altitude)) ? c.altitude : null; gps.ts = now;
     gps.trail.push([c.latitude, c.longitude]); if (gps.trail.length > 600) gps.trail.shift();
+    if (prev && d >= 2 && gps.spd > 0.5) gps.dist += d;                                   // 累計距離（不受是否錄影影響，供坡度估算）
+    if (gps.alt != null) {
+      gps.altS = gps.altS == null ? gps.alt : gps.altS * 0.7 + gps.alt * 0.3;            // 海拔平滑，減少 GPS 抖動
+      if (now - gps.lastHist >= 1000) { gps.lastHist = now; gps.hist.push({ t:now, a:gps.altS, d:gps.dist }); if (gps.hist.length > 180) gps.hist.shift(); }   // 最近約 3 分鐘
+    }
+    updateAlert(now);
 
     if (rec.on) {
       if (prev && dt > 0 && dt < 10) {
@@ -608,11 +636,17 @@ function drawStatsPanel(c, x, y, s) {
   if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
   const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
-  rr(c, x, y, W, H, 22 * s); c.fillStyle = 'rgba(10,12,15,.46)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
-  txt(c, run ? '配速' : '速度', x + pad, y + pad + 16 * s, `500 ${21 * s}px ${FONT}`, '#ff8a55');
+  const al = alertSt.lvl, acol = al === 2 ? '#ef4444' : al === 1 ? '#fbbf24' : null;
+  rr(c, x, y, W, H, 22 * s); c.fillStyle = 'rgba(10,12,15,.46)'; c.fill();
+  if (acol) {                                                  // 警示：黃＝接近速限（常亮）；紅＝超速（約每 1.2 秒呼吸一次）
+    const pulse = al === 2 ? 0.5 + 0.5 * Math.sin(Date.now() / 1200 * 2 * Math.PI) : 0;
+    rr(c, x, y, W, H, 22 * s); c.fillStyle = al === 2 ? `rgba(239,68,68,${0.16 + 0.22 * pulse})` : 'rgba(251,191,36,.14)'; c.fill();
+  }
+  c.strokeStyle = acol || 'rgba(255,255,255,.14)'; c.lineWidth = (acol ? 3 : 1.5) * s; rr(c, x, y, W, H, 22 * s); c.stroke();
+  txt(c, al === 2 ? '超速' : run ? '配速' : '速度', x + pad, y + pad + 16 * s, `600 ${21 * s}px ${FONT}`, acol || '#ff8a55');
   const big = run ? paceFmt(gps.spd) : spdNum(gps.spd).toFixed(1);
   const bf = `700 ${80 * s}px ${FONT}`; c.font = bf;
-  txt(c, big, x + pad, y + pad + 22 * s + bigH * .82, bf, '#fff');
+  txt(c, big, x + pad, y + pad + 22 * s + bigH * .82, bf, acol || '#fff');
   txt(c, run ? paceUnit() : spdUnit(), x + pad + c.measureText(big).width + 10 * s, y + pad + 22 * s + bigH * .82, `500 ${26 * s}px ${FONT}`, '#c4ccd6');
   rows.forEach((r, i) => {
     const yy = y + pad + 22 * s + bigH + 10 * s + (i + 1) * rowH - 11 * s;
@@ -621,6 +655,55 @@ function drawStatsPanel(c, x, y, s) {
     txt(c, r[1], x + W - pad, yy, `600 ${27 * s}px ${FONT}`, '#fff', 'right');
   });
   return { w:W, h:H };
+}
+
+/** 螢幕兩側：左側垂直速度條、右側海拔剖面（窄、半透明、貼邊；避開下方地圖與面板） */
+const NICE = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 200, 250, 300];
+function drawSides(c, W, H, s, g) {
+  const wm = ((cfg.showWm && (cfg.wmText || '').trim()) || cfg.showClock || cfg.showCoords) ? 112 * s : 0;   // 浮水印高度（估算）
+  let y0, y1; const stack = g.stack + 16 * s;
+  if (g.top) { y0 = g.T + stack; y1 = H - g.B - wm; } else { y0 = g.T + wm; y1 = H - g.B - stack; }
+  const barH = Math.min(y1 - y0 - 16 * s, H * 0.36); if (barH < 150 * s) return;       // 空間不足就不畫，避免擠在一起
+  const yy = y0 + (y1 - y0 - barH) / 2;
+  if (cfg.sideSpeed) drawSpeedBar(c, g.L, yy, 64 * s, barH, s);
+  if (cfg.sideElev) drawElevPanel(c, W - g.R - 108 * s, yy, 108 * s, barH, s);
+}
+function drawSpeedBar(c, x, y, w, h, s) {
+  rr(c, x, y, w, h, 18 * s); c.fillStyle = 'rgba(10,12,15,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
+  const base = { run:20, bike:50, moto:120 }[cfg.sport], lim = cfg.alertOn ? (cfg.lim[cfg.sport] || 0) : 0;
+  const need = Math.max(base, spdNum(rec.max) * 1.15, (imp() ? lim / 1.609344 : lim) * 1.25), top = NICE.find(n => n >= need) || Math.ceil(need / 50) * 50;   // 顯示單位的刻度上限
+  const mx = top / (imp() ? 2.236936 : 3.6);                                             // 換回 m/s
+  const col = alertSt.lvl === 2 ? '#ef4444' : alertSt.lvl === 1 ? '#fbbf24' : '#ff6b2c';
+  const tw = 14 * s, tx = x + w / 2 - tw / 2, ty = y + 44 * s, th = h - 88 * s;
+  txt(c, String(top), x + w / 2, y + 30 * s, `600 ${22 * s}px ${FONT}`, '#e4e9ef', 'center');
+  txt(c, spdUnit(), x + w / 2, y + h - 14 * s, `${17 * s}px ${FONT}`, '#9aa5b1', 'center');
+  rr(c, tx, ty, tw, th, tw / 2); c.fillStyle = 'rgba(255,255,255,.16)'; c.fill();
+  const fh = clamp(gps.spd / mx, 0, 1) * th;
+  if (fh > 1) { c.save(); rr(c, tx, ty, tw, th, tw / 2); c.clip(); c.fillStyle = col; c.fillRect(tx, ty + th - fh, tw, fh); c.restore(); }
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5 * s;
+  for (let i = 1; i < 4; i++) { const ly = ty + th * i / 4; c.beginPath(); c.moveTo(tx - 8 * s, ly); c.lineTo(tx - 2 * s, ly); c.stroke(); }
+  if (rec.on && rec.max > 0.5) { const my = ty + th - clamp(rec.max / mx, 0, 1) * th; c.strokeStyle = '#fff'; c.lineWidth = 2.5 * s; c.beginPath(); c.moveTo(tx - 6 * s, my); c.lineTo(tx + tw + 6 * s, my); c.stroke(); }   // 本趟最高速
+  if (lim) { const ly = ty + th - clamp(lim / 3.6 / mx, 0, 1) * th; c.strokeStyle = '#ef4444'; c.lineWidth = 2.5 * s; c.beginPath(); c.moveTo(tx - 9 * s, ly); c.lineTo(tx + tw + 9 * s, ly); c.stroke(); }   // 速限線
+}
+function drawElevPanel(c, x, y, w, h, s) {
+  rr(c, x, y, w, h, 18 * s); c.fillStyle = 'rgba(10,12,15,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
+  txt(c, '海拔', x + 14 * s, y + 30 * s, `500 ${21 * s}px ${FONT}`, '#ff8a55');
+  const hs = gps.hist, ax = x + 12 * s, aw = w - 24 * s, ay = y + 50 * s, ah = h - 50 * s - 96 * s;
+  if (hs.length >= 2 && ah > 20 * s) {
+    let lo = Infinity, hi = -Infinity; hs.forEach(p => { lo = Math.min(lo, p.a); hi = Math.max(hi, p.a); });
+    const mid = (lo + hi) / 2, range = Math.max(hi - lo, 8), lo2 = mid - range / 2;      // 最小顯示 8 公尺高差，平路不會被放大成假山
+    const pt = (p, i) => [ax + i / (hs.length - 1) * aw, ay + ah - (p.a - lo2) / range * ah];
+    c.beginPath(); hs.forEach((p, i) => { const q = pt(p, i); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); });
+    c.lineTo(ax + aw, ay + ah); c.lineTo(ax, ay + ah); c.closePath(); c.fillStyle = 'rgba(255,107,44,.2)'; c.fill();
+    c.beginPath(); hs.forEach((p, i) => { const q = pt(p, i); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); });
+    c.strokeStyle = '#ff6b2c'; c.lineWidth = 3 * s; c.lineJoin = 'round'; c.stroke();
+    const e = pt(hs[hs.length - 1], hs.length - 1); c.beginPath(); c.arc(e[0], e[1], 5 * s, 0, 7); c.fillStyle = '#fff'; c.fill();
+  } else txt(c, '--', x + w / 2, y + h / 2 - 30 * s, `600 ${28 * s}px ${FONT}`, '#8b96a3', 'center');
+  const a = altFmt(gps.alt == null ? null : gps.alt), sl = slopePct(), slv = (sl != null && gps.spd > 1.2) ? sl : null;
+  txt(c, `${a.v}`, x + 14 * s, y + h - 56 * s, `700 ${34 * s}px ${FONT}`, '#fff');
+  c.font = `700 ${34 * s}px ${FONT}`; txt(c, a.u, x + 14 * s + c.measureText(a.v).width + 6 * s, y + h - 56 * s, `500 ${19 * s}px ${FONT}`, '#c4ccd6');
+  const sc = slv == null ? '#8b96a3' : slv > 1 ? '#ff8a55' : slv < -1 ? '#5ec8ff' : '#fff';
+  txt(c, slv == null ? '坡度 --' : `坡度 ${slv > 0 ? '+' : ''}${slv.toFixed(0)}%`, x + 14 * s, y + h - 18 * s, `600 ${20 * s}px ${FONT}`, sc);
 }
 
 /** 浮水印：自訂文字、日期時間、座標 */
@@ -701,6 +784,11 @@ function draw() {
     else drawStatsPanel(c, px0, top ? T + mh + 14 * s : H - B - mh - 14 * s - panelH, s);
   } else drawStatsPanel(c, px0, py0, s);
   drawWatermark(c, W, H, s, !top, T, B);
+  if (cfg.sideSpeed || cfg.sideElev) drawSides(c, W, H, s, { L, R, T, B, top, stack:Math.max(cfg.showMap ? mh : 0, panelH) });
+  if (alertSt.lvl === 2) {                                      // 超速：整個畫面邊緣紅色呼吸光框
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 1200 * 2 * Math.PI);
+    c.save(); c.strokeStyle = `rgba(239,68,68,${0.35 + 0.4 * pulse})`; c.lineWidth = 14 * s; c.strokeRect(7 * s, 7 * s, W - 14 * s, H - 14 * s); c.restore();
+  }
 }
 
 let lastDraw = 0;
@@ -808,7 +896,8 @@ async function finishRec() {
     const meta = {
       id:'t' + rec.startTs, start:rec.startTs, end:rec.endTs, dur, sport:cfg.sport, dist:rec.dist, moving:rec.moving,
       avg: rec.moving > 3000 ? rec.dist / (rec.moving / 1000) : 0, max:rec.max, gain:rec.gain, pts:rec.pts, thumb:rec.thumb || '',
-      mime:rec.mime, size:blob.size, hasVideo:blob.size > 0
+      mime:rec.mime, size:blob.size, hasVideo:blob.size > 0,
+      lim: cfg.alertOn ? (cfg.lim[cfg.sport] || 0) : 0          // 本趟速限（km/h），0 代表未啟用
     };
     rec.chunks = [];
     try {
@@ -869,6 +958,7 @@ async function openDetail(id) {
         ${run ? st('gauge', '平均配速', paceFmt(t.avg), paceUnit()) : st('gauge', '平均速度', spdNum(t.avg).toFixed(1), spdUnit())}
         ${run ? st('trend', '最快配速', paceFmt(t.max), paceUnit()) : st('trend', '最高速度', spdNum(t.max).toFixed(1), spdUnit())}
         ${st('clock', '移動時間', fmtDur(t.moving))}${st('mountain', '累計爬升', a.v, a.u)}
+        ${t.lim ? st('gauge', '速限', (imp() ? t.lim / 1.609344 : t.lim).toFixed(0), spdUnit()) + st('clock', '超速時間', fmtDur(overMs(t))) : ''}
       </div>
       <div class="pane"><h3>速度變化</h3><canvas id="dchart"></canvas></div>
       <div class="acts">
@@ -884,6 +974,12 @@ async function openDetail(id) {
     $('#aGpx').onclick = exportGPX;
     requestAnimationFrame(drawDetail);
   } catch (e) { reportError(e); }
+}
+/** 超速累計時間（毫秒）：相鄰兩點間隔超過 5 秒視為訊號中斷，最多計 5 秒 */
+function overMs(t) {
+  const lim = (t.lim || 0) / 3.6; if (!lim) return 0; let ms = 0;
+  for (let i = 1; i < t.pts.length; i++) if (t.pts[i].sp >= lim) ms += Math.min(5000, t.pts[i].t - t.pts[i - 1].t);
+  return ms;
 }
 function revokeUrl() { if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; } }
 function closeDetail() { const v = $('#dvid'); if (v) v.pause(); revokeUrl(); show('#detail', false); curTrip = null; openHist(); }
@@ -940,14 +1036,21 @@ function drawChart(t) {
   const cv = $('#dchart'); if (!cv) return; const { c, w, h, k } = fitCanvas(cv), pts = t.pts;
   c.clearRect(0, 0, w, h);
   if (pts.length < 2) { txt(c, '資料不足', w / 2, h / 2, `${14 * k}px ${FONT}`, '#8b96a3', 'center'); return; }
-  const run = t.sport === 'run', mx = Math.max(...pts.map(q => q.sp), 1), L = 14 * k, R = w - 14 * k, T = 18 * k, B = h - 26 * k;
+  const run = t.sport === 'run', maxSp = Math.max(...pts.map(q => q.sp), 1), limMs = t.lim ? t.lim / 3.6 : 0, mx = Math.max(maxSp, limMs * 1.08), L = 14 * k, R = w - 14 * k, T = 18 * k, B = h - 26 * k;
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
   const X = q => L + (q.t - t0) / Math.max(1, t1 - t0) * (R - L), Y = q => B - q.sp / mx * (B - T);
   c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; for (let i = 0; i <= 3; i++) { const y = T + (B - T) * i / 3; c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); }
   c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q)));
   c.lineTo(X(pts[pts.length - 1]), B); c.lineTo(X(pts[0]), B); c.closePath(); c.fillStyle = 'rgba(255,107,44,.16)'; c.fill();
   c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q))); c.strokeStyle = '#ff6b2c'; c.lineWidth = 2 * k; c.lineJoin = 'round'; c.stroke();
-  txt(c, run ? `最快 ${paceFmt(mx)} ${paceUnit()}` : `最高 ${spdNum(mx).toFixed(1)} ${spdUnit()}`, L, 13 * k, `${11 * k}px ${FONT}`, '#8b96a3');
+  if (limMs) {                                                  // 超速段落以紅線標示，並畫出速限虛線
+    const yl = Y({ sp:limMs });
+    c.save(); c.beginPath(); c.rect(L, 0, R - L, yl); c.clip();
+    c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(X(q), Y(q)) : c.moveTo(X(q), Y(q))); c.strokeStyle = '#ef4444'; c.lineWidth = 2.5 * k; c.lineJoin = 'round'; c.stroke(); c.restore();
+    c.setLineDash([5 * k, 4 * k]); c.strokeStyle = 'rgba(239,68,68,.8)'; c.lineWidth = 1.5 * k; c.beginPath(); c.moveTo(L, yl); c.lineTo(R, yl); c.stroke(); c.setLineDash([]);
+    txt(c, `速限 ${(imp() ? t.lim / 1.609344 : t.lim).toFixed(0)} ${spdUnit()}`, R, yl - 5 * k, `${11 * k}px ${FONT}`, '#ef4444', 'right');
+  }
+  txt(c, run ? `最快 ${paceFmt(maxSp)} ${paceUnit()}` : `最高 ${spdNum(maxSp).toFixed(1)} ${spdUnit()}`, L, 13 * k, `${11 * k}px ${FONT}`, '#8b96a3');
   txt(c, '0', L, h - 8 * k, `${11 * k}px ${FONT}`, '#8b96a3'); txt(c, fmtDur(t1 - t0), R, h - 8 * k, `${11 * k}px ${FONT}`, '#8b96a3', 'right');
 }
 window.addEventListener('resize', () => { if (curTrip) drawDetail(); });
@@ -978,6 +1081,13 @@ const SCHEMA = [
     { k:'units', t:'seg', l:'單位', o:[['metric', '公制'], ['imperial', '英制']] },
     { k:'showDist', t:'tog', l:'距離' }, { k:'showTime', t:'tog', l:'時間' },
     { k:'showAlt', t:'tog', l:'海拔' }, { k:'showAvg', t:'tog', l:'平均速度／配速' } ] },
+  { g:'螢幕兩側', items:[
+    { k:'sideSpeed', t:'tog', l:'左側：速度條' }, { k:'sideElev', t:'tog', l:'右側：海拔剖面與坡度' },
+    { t:'note', l:'空間不足時會自動隱藏。坡度由 GPS 海拔估算，低速或訊號差時會顯示 --。' } ] },
+  { g:'超速警示', items:[
+    { k:'alertOn', t:'tog', l:'啟用超速警示（黃＝接近、紅＝超速）' },
+    { t:'lim', k:'run', l:'跑步速限' }, { t:'lim', k:'bike', l:'單車速限' }, { t:'lim', k:'moto', l:'機車速限' },
+    { t:'note', l:'速限由你自行設定，僅供自我提醒，並非道路速限或法規依據。' } ] },
   { g:'浮水印', items:[
     { k:'showWm', t:'tog', l:'自訂文字' }, { k:'wmText', t:'text', l:'文字內容' },
     { k:'showClock', t:'tog', l:'日期時間' }, { k:'showCoords', t:'tog', l:'GPS 座標' } ] }
@@ -988,16 +1098,20 @@ function renderSettings() {
     if (it.t === 'tog') ctl = `<button class="tog ${cfg[it.k] ? 'on' : ''}" data-k="${it.k}" role="switch" aria-checked="${!!cfg[it.k]}"></button>`;
     if (it.t === 'seg') ctl = `<div class="mini">${it.o.map(o => `<button data-k="${it.k}" data-v="${o[0]}" class="${String(cfg[it.k]) === o[0] ? 'on' : ''}">${o[1]}</button>`).join('')}</div>`;
     if (it.t === 'text') ctl = `<input class="txt" data-k="${it.k}" maxlength="24" value="${String(cfg[it.k]).replace(/"/g, '&quot;')}" placeholder="例如：週末環島">`;
+    if (it.t === 'lim') { const v = Math.round((imp() ? cfg.lim[it.k] / 1.609344 : cfg.lim[it.k]) * 10) / 10; ctl = `<span class="row" style="gap:6px"><input class="txt" style="width:84px;text-align:right" type="number" inputmode="decimal" min="1" max="500" step="1" data-lim="${it.k}" value="${v}"><span class="note">${spdUnit()}</span></span>`; }
+    if (it.t === 'note') return `<div class="note" style="padding:6px 0 2px">${it.l}</div>`;
     return `<div class="item"><span>${it.l}</span>${ctl}</div>`;
   }).join('')).join('');
   $$('#setBody .tog').forEach(b => b.onclick = () => { cfg[b.dataset.k] = !cfg[b.dataset.k]; saveCfg(); renderSettings(); });
   $$('#setBody .mini button').forEach(b => b.onclick = () => { cfg[b.dataset.k] = b.dataset.v; saveCfg(); renderSettings(); });
-  $$('#setBody .txt').forEach(i => i.oninput = () => { cfg[i.dataset.k] = i.value; saveCfg(); });
+  $$('#setBody .txt[data-k]').forEach(i => i.oninput = () => { cfg[i.dataset.k] = i.value; saveCfg(); });
+  $$('#setBody [data-lim]').forEach(i => i.oninput = () => { const v = parseFloat(i.value); if (isFinite(v) && v > 0) { cfg.lim[i.dataset.lim] = imp() ? v * 1.609344 : v; saveCfg(); updateAlert(Date.now()); } });
 }
 let setSnap = '';
 function openSettings() { setSnap = cfg.res + '|' + cfg.mic; renderSettings(); show('#sheet', true); }
 async function closeSettings() {
   show('#sheet', false);
+  updateAlert(Date.now());
   resizeCanvas();                                  // 畫面比例可能已變更
   if (setSnap !== cfg.res + '|' + cfg.mic && stream && !rec.on) { try { await openCamera(); } catch (e) { reportError(e); } }
   else if (setSnap !== cfg.res + '|' + cfg.mic && rec.on) toast('畫質／麥克風變更將於下次錄影生效');
@@ -1007,7 +1121,7 @@ const SPORT_ORDER = ['run', 'bike', 'moto'];
 function cycleSport(d) {
   if (rec.on) return toast('錄影中無法切換運動', 1500);
   cfg.sport = SPORT_ORDER[(SPORT_ORDER.indexOf(cfg.sport) + d + SPORT_ORDER.length) % SPORT_ORDER.length];
-  saveCfg(); syncSport(true);
+  saveCfg(); syncSport(true); updateAlert(Date.now());
   try { navigator.vibrate && navigator.vibrate(12); } catch (e) {}
 }
 /** 第一次進入相機時提示一次滑動手勢 */
