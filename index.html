@@ -41,34 +41,39 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 
 /* ---------- 相機主畫面 ---------- */
 #cam{position:absolute;inset:0;background:#000}
-#viewport{position:absolute;left:0;right:0;top:calc(var(--sat) + 62px);bottom:calc(var(--sab) + 176px)}
-#view{width:100%;height:100%;object-fit:contain;display:block;border-radius:14px;background:#050607}
+#viewport{position:absolute;inset:0}
+#view{width:100%;height:100%;object-fit:contain;display:block;background:#000}
 .top{position:absolute;left:0;right:0;top:0;padding:calc(var(--sat) + 10px) calc(var(--sar) + 14px) 8px calc(var(--sal) + 14px);
   display:flex;align-items:center;justify-content:space-between;gap:8px;z-index:5}
-.chip{display:flex;align-items:center;gap:7px;height:38px;padding:0 13px;border-radius:19px;background:rgba(20,24,29,.78);
-  border:1px solid var(--line);font-size:13px;color:var(--sub);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.chip{display:flex;align-items:center;gap:7px;height:38px;padding:0 13px;border-radius:19px;background:rgba(20,24,29,.5);
+  border:1px solid var(--line);font-size:13px;color:#e4e9ef;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--danger)}
 .chip.ok .dot{background:var(--ok)} .chip.warn .dot{background:var(--warn)}
 .chip.rec{color:#fff;border-color:rgba(239,68,68,.6);background:rgba(239,68,68,.22);font-variant-numeric:tabular-nums;font-weight:600}
 .chip.rec .dot{background:var(--danger);animation:blink 1s infinite}
 @keyframes blink{50%{opacity:.25}}
 .row{display:flex;gap:8px;align-items:center}
-.iconbtn{width:42px;height:42px;border-radius:21px;display:grid;place-items:center;background:rgba(20,24,29,.78);
+.iconbtn{width:42px;height:42px;border-radius:21px;display:grid;place-items:center;background:rgba(20,24,29,.5);
   border:1px solid var(--line);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .iconbtn:active{transform:scale(.94)}
 .iconbtn:disabled{opacity:.35}
 .bottom{position:absolute;left:0;right:0;bottom:0;padding:10px calc(var(--sar) + 18px) calc(var(--sab) + 18px) calc(var(--sal) + 18px);z-index:5}
-.seg{display:flex;gap:4px;padding:4px;border-radius:14px;background:var(--panel);border:1px solid var(--line);max-width:420px;margin:0 auto 16px}
-.seg button{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border-radius:10px;font-size:14px;color:var(--sub);transition:.15s}
+.seg{display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(20,24,29,.5);border:1px solid rgba(255,255,255,.16);max-width:420px;margin:0 auto 12px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.seg button{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border-radius:10px;font-size:14px;color:#c9d1da;transition:.15s}
 .seg button.on{background:var(--accent-soft);color:var(--accent)}
 .seg button:disabled{opacity:.45}
 .ctrl{display:flex;align-items:center;justify-content:space-between;max-width:420px;margin:0 auto}
-.side{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:var(--panel);border:1px solid var(--line)}
+.side{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:rgba(20,24,29,.5);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .side:disabled{opacity:.35}
 .recbtn{width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:grid;place-items:center;transition:.15s}
 .recbtn i{display:block;width:62px;height:62px;border-radius:50%;background:var(--danger);transition:.18s}
 .recbtn.on i{width:30px;height:30px;border-radius:8px}
 .recbtn:active{transform:scale(.95)}
+
+/* 上下漸層遮罩：讓浮在影像上的按鈕與文字在亮背景下仍清楚 */
+.top::before,.bottom::before{content:"";position:absolute;left:0;right:0;pointer-events:none;z-index:-1}
+.top::before{top:0;height:150%;background:linear-gradient(rgba(0,0,0,.45),transparent)}
+.bottom::before{bottom:0;height:135%;background:linear-gradient(to top,rgba(0,0,0,.5),transparent)}
 
 /* ---------- 全螢幕頁面（簡介 / 歷史 / 詳情） ---------- */
 .screen{position:absolute;inset:0;background:var(--bg);z-index:20;overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -151,9 +156,8 @@ a{color:var(--accent)}
 #hist{z-index:25} #detail{z-index:30} #intro{z-index:35}
 
 /* 電腦版：相機區域置中並限制寬度 */
-@media (min-width:900px){ #viewport{left:50%;right:auto;width:min(1100px,92vw);transform:translateX(-50%)} }
 @media (max-height:520px) and (orientation:landscape){
-  #viewport{top:calc(var(--sat) + 52px);bottom:calc(var(--sab) + 12px);right:170px;left:12px}
+  .bottom::before{display:none}
   .bottom{left:auto;width:160px;top:60px;padding:0 calc(var(--sar) + 10px) 10px 0}
   .seg{flex-direction:column;margin-bottom:10px}
   .ctrl{flex-direction:column;gap:12px;height:auto}
@@ -173,6 +177,7 @@ a{color:var(--accent)}
         <div class="chip rec hidden" id="recChip"><span class="dot"></span><span id="recTime">00:00:00</span></div>
       </div>
       <div class="row">
+        <button class="iconbtn hidden" id="btnFs" aria-label="全螢幕"><i data-ic="expand"></i></button>
         <button class="iconbtn" id="btnInstall" aria-label="安裝 APP"><i data-ic="smartphone"></i></button>
         <button class="iconbtn" id="btnSet" aria-label="設定"><i data-ic="sliders"></i></button>
       </div>
@@ -290,6 +295,7 @@ const ICON = {
   book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   film:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 12h18"/>',
   check:'<path d="M20 6 9 17l-5-5"/>',
+  expand:'<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   trend:'<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>'
 };
 /** 產生一個內嵌 SVG 字串 */
@@ -344,7 +350,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 私密模式等情況忽略 */ } }
 };
 const DEFAULTS = {
-  sport:'bike', facing:'environment', res:'1080', mic:true,
+  sport:'bike', facing:'environment', res:'1080', mic:true, ratio:'screen',
   showMap:true, mapPos:'bl', mapStyle:'dark', mapSize:'m', zoom:'0',
   units:'metric', showDist:true, showTime:true, showAlt:true, showAvg:true,
   showWm:true, wmText:'TraceCam', showClock:true, showCoords:false
@@ -576,6 +582,13 @@ function drawLiveMap(c, x, y, w, h, s) {
   rr(c, x, y, w, h, 22 * s); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2 * s; c.stroke();
 }
 
+/** 數據面板尺寸（版面計算用，避免靠猜測高度） */
+function panelDims(s) {
+  const n = [cfg.showDist, cfg.showTime, cfg.showAlt, cfg.showAvg].filter(Boolean).length;
+  const pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
+  return { W:340 * s, H:pad + 22 * s + bigH + (n ? 10 * s + n * rowH : 0) + pad * .6 };
+}
+
 /** 數據面板：大字速度／配速 ＋ 距離、時間、海拔、均速 */
 function drawStatsPanel(c, x, y, s) {
   const { elapsed, avg } = liveStats(), run = cfg.sport === 'run';
@@ -586,7 +599,7 @@ function drawStatsPanel(c, x, y, s) {
   if (cfg.showAvg)  rows.push([run ? '均配速' : '均速', run ? `${paceFmt(avg)} ${paceUnit()}` : `${spdNum(avg).toFixed(1)} ${spdUnit()}`]);
   const W = 340 * s, pad = 20 * s, rowH = 38 * s, bigH = 92 * s;
   const H = pad + 22 * s + bigH + (rows.length ? 10 * s + rows.length * rowH : 0) + pad * .6;
-  rr(c, x, y, W, H, 22 * s); c.fillStyle = 'rgba(10,12,15,.58)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
+  rr(c, x, y, W, H, 22 * s); c.fillStyle = 'rgba(10,12,15,.46)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5 * s; c.stroke();
   txt(c, run ? '配速' : '速度', x + pad, y + pad + 16 * s, `500 ${21 * s}px ${FONT}`, '#ff8a55');
   const big = run ? paceFmt(gps.spd) : spdNum(gps.spd).toFixed(1);
   const bf = `700 ${80 * s}px ${FONT}`; c.font = bf;
@@ -602,7 +615,7 @@ function drawStatsPanel(c, x, y, s) {
 }
 
 /** 浮水印：自訂文字、日期時間、座標 */
-function drawWatermark(c, W, H, s, atTop) {
+function drawWatermark(c, W, H, s, atTop, T, B) {
   const l1 = cfg.showWm ? (cfg.wmText || '').trim() : '';
   const parts = []; if (cfg.showClock) parts.push(fmtClock(Date.now()));
   if (cfg.showCoords && gps.lat != null) parts.push(`${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`);
@@ -611,21 +624,49 @@ function drawWatermark(c, W, H, s, atTop) {
   const f1 = `700 ${32 * s}px ${FONT}`, f2 = `500 ${23 * s}px ${FONT}`;
   c.font = f1; const w1 = l1 ? c.measureText(l1).width : 0; c.font = f2; const w2 = l2 ? c.measureText(l2).width : 0;
   const bw = Math.min(W - 40 * s, Math.max(w1, w2) + 44 * s), bh = (l1 ? 44 * s : 0) + (l2 ? 34 * s : 0) + 18 * s;
-  const bx = (W - bw) / 2, by = atTop ? 24 * s : H - bh - 24 * s;
-  rr(c, bx, by, bw, bh, 18 * s); c.fillStyle = 'rgba(10,12,15,.5)'; c.fill();
+  const bx = (W - bw) / 2, by = atTop ? T : H - bh - B;
+  rr(c, bx, by, bw, bh, 18 * s); c.fillStyle = 'rgba(10,12,15,.4)'; c.fill();
   let yy = by + 10 * s;
   if (l1) { yy += 34 * s; txt(c, l1, W / 2, yy, f1, '#fff', 'center'); yy += 10 * s; }
   if (l2) { yy += 24 * s; txt(c, l2, W / 2, yy, f2, '#d5dbe3', 'center'); }
 }
 
-/** 影片尺寸 → 畫布尺寸（依畫質上限縮放；錄影中固定不變） */
+/** 疊加內容的安全邊界（畫布像素）：避開浮在畫面上的上下操作列，避免資訊框被按鈕蓋住 */
+let INS = { t:0, b:0, l:0, r:0 };
+function computeInsets() {
+  INS = { t:0, b:0, l:0, r:0 };
+  if (cfg.ratio !== 'screen') return;
+  try {
+    const vw = window.innerWidth, vh = window.innerHeight, k = view.height / vh;   // 螢幕 CSS 像素 → 畫布像素
+    const top = $('.top'), bot = $('.bottom'); if (!top || !bot) return;
+    const tr = top.getBoundingClientRect(), br = bot.getBoundingClientRect(), cs = getComputedStyle(top);
+    const sal = Math.max(0, (parseFloat(cs.paddingLeft) || 14) - 14), sar = Math.max(0, (parseFloat(cs.paddingRight) || 14) - 14);   // 左右安全區（橫向瀏海）
+    INS.t = Math.max(0, tr.bottom) * k; INS.l = sal * k; INS.r = sar * k;
+    if (br.width < vw * 0.6) INS.r = Math.max(INS.r, (vw - br.left) * k);          // 橫向：操作列在右側
+    else INS.b = Math.max(0, vh - br.top) * k;                                    // 直向：操作列在底部
+  } catch (e) { /* 取不到版面時維持 0 */ }
+}
+
+/**
+ * 影片尺寸 → 畫布尺寸（依畫質上限縮放；錄影中固定不變）
+ * ratio = screen：畫布比例與螢幕相同，預覽鋪滿全螢幕，錄出來的畫面與預覽完全一致
+ * ratio = camera：沿用相機原始比例（預覽以 contain 顯示，可能有黑邊）
+ */
 function resizeCanvas() {
-  if (rec.on || !video.videoWidth) return;
+  if (rec.on) return;
   const cap = cfg.res === '1080' ? 1920 : 1280;
-  let w = video.videoWidth, h = video.videoHeight; const long = Math.max(w, h);
-  if (long > cap) { w = w * cap / long; h = h * cap / long; }
-  w = Math.round(w / 2) * 2; h = Math.round(h / 2) * 2;
+  let w, h;
+  if (cfg.ratio === 'screen') {
+    const vw = Math.max(1, window.innerWidth), vh = Math.max(1, window.innerHeight), ar = vw / vh;
+    if (ar < 1) { h = cap; w = cap * ar; } else { w = cap; h = cap / ar; }
+  } else {
+    if (!video.videoWidth) return;
+    w = video.videoWidth; h = video.videoHeight; const long = Math.max(w, h);
+    if (long > cap) { w = w * cap / long; h = h * cap / long; }
+  }
+  w = Math.max(2, Math.round(w / 2) * 2); h = Math.max(2, Math.round(h / 2) * 2);
   if (view.width !== w || view.height !== h) { view.width = w; view.height = h; }
+  computeInsets();
 }
 
 /** 主繪製：先畫相機畫面（cover 填滿），再疊加地圖、數據、浮水印 */
@@ -639,19 +680,18 @@ function draw() {
     c.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
   }
   const s = Math.min(W, H) / 720, m = 24 * s;
+  const L = m + INS.l, R = m + INS.r, T = m + INS.t, B = m + INS.b;     // 四邊安全邊界（避開浮動操作列）
   const left = cfg.mapPos[1] === 'l', top = cfg.mapPos[0] === 't';
-  const mw = Math.min(W, H) * ({ s:.28, m:.36, l:.46 }[cfg.mapSize] || .36), mh = mw;
-  const panelW = 340 * s;
+  const mw = Math.max(90 * s, Math.min(W - L - R, H - T - B, Math.min(W, H) * ({ s:.28, m:.36, l:.46 }[cfg.mapSize] || .36))), mh = mw;
+  const pd = panelDims(s), panelW = pd.W, panelH = pd.H;
+  const px0 = left ? L : W - R - panelW, py0 = top ? T : H - B - panelH;
   if (cfg.showMap) {
-    drawLiveMap(c, left ? m : W - m - mw, top ? m : H - m - mh, mw, mh, s);
-    // 數據面板放在地圖對側；若空間不足（窄畫面）則改放同側上方
-    const px = left ? W - m - panelW : m;
-    const approxH = 330 * s;
-    if (W - 2 * m - mw >= panelW + 8 * s) drawStatsPanel(c, px, top ? m : H - m - approxH, s); else drawStatsPanel(c, left ? m : W - m - panelW, top ? m + mh + 14 * s : H - m - mh - approxH - 14 * s, s);
-  } else {
-    drawStatsPanel(c, left ? m : W - m - panelW, top ? m : H - m - 330 * s, s);
-  }
-  drawWatermark(c, W, H, s, !top);
+    drawLiveMap(c, left ? L : W - R - mw, top ? T : H - B - mh, mw, mh, s);
+    // 數據面板放在地圖對側；若寬度不足（窄畫面）則改疊在地圖同側的內側
+    if (W - L - R - mw >= panelW + 10 * s) drawStatsPanel(c, left ? W - R - panelW : L, py0, s);
+    else drawStatsPanel(c, px0, top ? T + mh + 14 * s : H - B - mh - 14 * s - panelH, s);
+  } else drawStatsPanel(c, px0, py0, s);
+  drawWatermark(c, W, H, s, !top, T, B);
 }
 
 let lastDraw = 0;
@@ -917,6 +957,7 @@ $('#histBack').onclick = () => show('#hist', false);
 const SCHEMA = [
   { g:'錄影', items:[
     { k:'res', t:'seg', l:'畫質', o:[['720', '720p'], ['1080', '1080p']] },
+    { k:'ratio', t:'seg', l:'畫面比例', o:[['screen', '全螢幕'], ['camera', '相機原始']] },
     { k:'mic', t:'tog', l:'錄製麥克風聲音' } ] },
   { g:'即時地圖', items:[
     { k:'showMap', t:'tog', l:'顯示迷你地圖' },
@@ -948,6 +989,7 @@ let setSnap = '';
 function openSettings() { setSnap = cfg.res + '|' + cfg.mic; renderSettings(); show('#sheet', true); }
 async function closeSettings() {
   show('#sheet', false);
+  resizeCanvas();                                  // 畫面比例可能已變更
   if (setSnap !== cfg.res + '|' + cfg.mic && stream && !rec.on) { try { await openCamera(); } catch (e) { reportError(e); } }
   else if (setSnap !== cfg.res + '|' + cfg.mic && rec.on) toast('畫質／麥克風變更將於下次錄影生效');
 }
@@ -1002,6 +1044,12 @@ function bind() {
   };
   $$('#sportSeg button').forEach(b => b.onclick = () => { if (rec.on) return; cfg.sport = b.dataset.sport; saveCfg(); syncSport(); });
   document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && $('#intro').classList.contains('hidden') && stream) { e.preventDefault(); $('#btnRec').click(); } });
+  // 全螢幕按鈕：僅在瀏覽器分頁（非已安裝 App）且支援 Fullscreen API 時顯示（iPhone Safari 不支援）
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (document.fullscreenEnabled && !standalone) $('#btnFs').classList.remove('hidden');
+  $('#btnFs').onclick = () => { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({ navigationUI:'hide' }).catch(reportError); } catch (e) { reportError(e); } };
+  let rt; const relayout = () => { clearTimeout(rt); rt = setTimeout(resizeCanvas, 150); };   // 旋轉或縮放視窗後重算畫布與安全邊界
+  window.addEventListener('resize', relayout); window.addEventListener('orientationchange', relayout); document.addEventListener('fullscreenchange', relayout);
   window.addEventListener('beforeunload', e => { if (rec.on) { e.preventDefault(); e.returnValue = ''; } });
 }
 

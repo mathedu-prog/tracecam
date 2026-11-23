@@ -6,7 +6,7 @@
    - 靜態資源：先回快取，背景同步更新（stale-while-revalidate）
    - activate：清除舊版快取
    ===================================================================== */
-const VERSION = 'v1.0.8';
+const VERSION = 'v1.0.9';
 const CACHE = 'tracecam-' + VERSION;
 
 // 預先快取的核心檔案（相對路徑，部署在 /<repo>/ 子路徑也能運作）
